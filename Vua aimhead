@@ -4,6 +4,8 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -13,6 +15,7 @@ local AimbotEnabled = true
 local ESPEnabled = true
 local BlueBackgroundEnabled = true -- Mặc định là nền xanh mờ (BẬT)
 local MenuVisible = true -- Trạng thái ẩn/hiện của bảng menu chính
+local FPSToggleState = false -- Chức năng tăng FPS mặc định là TẮT
 local FOV_RADIUS = 35 
 local MAX_LINE_DISTANCE = 200 
 local TARGET_PART = "Head"
@@ -155,6 +158,122 @@ local function removeESP(player)
     end
 end
 
+-- CHỨC NĂNG TĂNG FPS (XÓA ĐỒ HỌA/TỐI ƯU HÓA)
+local HiddenPlayers = {}
+local function IsImportant(instance)
+    local name = string.lower(instance.Name)
+    local protectedNames = {"baseplate", "spawnlocation", "floor", "ground", "sàn", "checkpoint", "teleport"}
+    for _, protected in ipairs(protectedNames) do
+        if string.find(name, protected) then
+            return true
+        end
+    end
+    return false
+end
+
+local function SmartOptimize(instance)
+    if instance:IsA("BasePart") or instance:IsA("MeshPart") then
+        instance.Material = Enum.Material.SmoothPlastic
+        instance.CastShadow = false
+        instance.Reflectance = 0
+        if instance:IsA("MeshPart") and not IsImportant(instance) then
+            instance.TextureID = ""
+        end
+    elseif instance:IsA("ParticleEmitter") or instance:IsA("Smoke") or instance:IsA("Fire") or instance:IsA("Sparkles") or instance:IsA("Trail") or instance:IsA("Beam") then
+        task.spawn(function()
+            instance:Destroy()
+        end)
+    elseif instance:IsA("Decal") or instance:IsA("Texture") then
+        if instance.Parent and not IsImportant(instance.Parent) then
+            task.spawn(function()
+                instance:Destroy()
+            end)
+        end
+    end
+end
+
+local function ExecuteSmartFPSBooster()
+    if _G.SmartFPSBoosterExecuted then return end
+    _G.SmartFPSBoosterExecuted = true
+
+    -- Tối ưu Ánh sáng (Lighting)
+    Lighting.GlobalShadows = false
+    Lighting.Brightness = 1
+    Lighting.ClockTime = 12
+    for _, effect in ipairs(Lighting:GetChildren()) do
+        if effect:IsA("BlurEffect") or effect:IsA("SunRaysEffect") or effect:IsA("BloomEffect") or effect:IsA("DepthOfFieldEffect") then
+            effect:Destroy()
+        end
+    end
+
+    -- Quét Map ban đầu bằng task.spawn và chia nhỏ bằng Heartbeat
+    task.spawn(function()
+        local count = 0
+        for _, descendant in ipairs(Workspace:GetDescendants()) do
+            if descendant:IsDescendantOf(LocalPlayer.Character or workspace) and not descendant:IsDescendantOf(LocalPlayer.Character) then
+                SmartOptimize(descendant)
+                count = count + 1
+                if count >= 150 then
+                    count = 0
+                    RunService.Heartbeat:Wait()
+                end
+            end
+        end
+    end)
+
+    -- Đón đầu hiệu ứng mới xuất hiện
+    Workspace.DescendantAdded:Connect(function(descendant)
+        if LocalPlayer.Character and descendant:IsDescendantOf(LocalPlayer.Character) then return end
+        SmartOptimize(descendant)
+    end)
+
+    -- Cơ chế ẩn người chơi ở quá xa (Mỗi 3 giây)
+    task.spawn(function()
+        while true do
+            task.wait(3)
+            local localCharacter = LocalPlayer.Character
+            local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
+            if localRoot then
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        local char = player.Character
+                        local root = char:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            local distance = (root.Position - localRoot.Position).Magnitude
+                            if distance > 250 then
+                                if char.Parent == Workspace then
+                                    HiddenPlayers[player] = char
+                                    char.Parent = nil
+                                end
+                            else
+                                if HiddenPlayers[player] and HiddenPlayers[player].Parent == nil then
+                                    HiddenPlayers[player].Parent = Workspace
+                                    HiddenPlayers[player] = nil
+                                end
+                            end
+                        end
+                    end
+                end
+                -- Kiểm tra danh sách người chơi đã thoát game để dọn dẹp bộ nhớ ẩn
+                for player, char in pairs(HiddenPlayers) do
+                    if not player.Parent then
+                        HiddenPlayers[player] = nil
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Giải phóng RAM định kỳ (Mỗi 20 giây)
+    task.spawn(function()
+        while true do
+            task.wait(20)
+            gcinfo()
+            settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+        end
+    end)
+end
+
 -- VÒNG LẶP CHÍNH (MAIN LOOP) - TỐI ƯU NHẠY VÀ MƯỢT HƠN TRÊN RENDERSTEPPED
 local mainConnection = RunService.RenderStepped:Connect(function()
     local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
@@ -199,7 +318,8 @@ local mainConnection = RunService.RenderStepped:Connect(function()
 
     -- XỬ LÝ BẬT/TẮT ESP WALLHACK
     for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
+        -- Đảm bảo người chơi không bị ẩn bởi cơ chế tối ưu khoảng cách trước khi áp dụng ESP
+        if player ~= LocalPlayer and player.Character and player.Character.Parent == Workspace then
             local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
             if humanoid and humanoid.Health > 0 then
                 applyESP(player)
@@ -217,7 +337,7 @@ local mainConnection = RunService.RenderStepped:Connect(function()
             local targetPlayer = closest3Players[i]
             local line = TracerLines[i]
             
-            if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild(TARGET_PART) then
+            if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild(TARGET_PART) and targetPlayer.Character.Parent == Workspace then
                 local targetPart = targetPlayer.Character[TARGET_PART]
                 local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
                 
@@ -246,12 +366,12 @@ end)
 
 -- QUẢN LÝ EVENT PLAYER
 for _, player in ipairs(Players:GetPlayers()) do
-    player.CharacterAdded:Connect(function() task.wait(0.5) if ESPEnabled then applyESP(player) end end)
+    player.CharacterAdded:Connect(function() task.wait(0.5) if ESPEnabled and player.Character.Parent == Workspace then applyESP(player) end end)
 end
 Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function() task.wait(0.5) if ESPEnabled then applyESP(player) end end)
+    player.CharacterAdded:Connect(function() task.wait(0.5) if ESPEnabled and player.Character.Parent == Workspace then applyESP(player) end end)
 end)
-Players.PlayerRemoving:Connect(function(player) removeESP(player) end)
+Players.PlayerRemoving:Connect(function(player) removeESP(player) if HiddenPlayers[player] then HiddenPlayers[player] = nil end end)
 
 -- TẠO GIAO DIỆN HỆ THỐNG MENU (GUI)
 if PlayerGui:FindFirstChild("MobileCheatMenu") then PlayerGui.MobileCheatMenu:Destroy() end
@@ -262,13 +382,13 @@ ScreenGui.Parent = PlayerGui
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
--- Khung Menu Chính
+-- Khung Menu Chính (Tăng chiều cao lên 345 để chứa thêm nút FPS)
 local MainMenu = Instance.new("Frame")
 MainMenu.Name = "MainMenu"
 MainMenu.Parent = ScreenGui
 MainMenu.BorderSizePixel = 0
 MainMenu.Position = UDim2.new(0.3, 0, 0.25, 0)
-MainMenu.Size = UDim2.new(0, 230, 0, 310)
+MainMenu.Size = UDim2.new(0, 230, 0, 345)
 MainMenu.Active = true
 MainMenu.ZIndex = 2
 
@@ -419,6 +539,19 @@ BackgroundToggle = createToggle("BackgroundToggle", "NỀN MENU: XANH MỜ", "N�
     else
         MainMenu.BackgroundColor3 = DefaultMenuColor
         MainMenu.BackgroundTransparency = 0
+    end
+end)
+
+-- Tạo nút kích hoạt Tăng FPS cố định (Một khi bật là không thể tắt)
+local FPSToggle
+FPSToggle = createToggle("FPSToggle", "TĂNG FPS: ĐÃ KÍCH HOẠT", "TĂNG FPS: CHƯA BẬT", UDim2.new(0, 15, 0, 285), FPSToggleState, function(v)
+    if v then
+        FPSToggleState = true
+        FPSToggle.Text = "TĂNG FPS: ĐÃ KÍCH HOẠT"
+        FPSToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 100)
+        -- Ngắt tương tác chuột/touch sau khi bật để không thể ấn tắt lại
+        FPSToggle.Active = false
+        ExecuteSmartFPSBooster()
     end
 end)
 
