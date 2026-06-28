@@ -4,7 +4,6 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -12,27 +11,27 @@ local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 -- BIẾN CẤU HÌNH HỆ THỐNG (SETTINGS)
 local AimbotEnabled = true
 local ESPEnabled = true
-local BlueBackgroundEnabled = true 
-local MenuVisible = true 
-local FOV_RADIUS = 35 
-local MAX_LINE_DISTANCE = 200 
+local BlueBackgroundEnabled = true -- Mặc định là nền xanh mờ (BẬT)
+local MenuVisible = true -- Trạng thái ẩn/hiện của bảng menu chính
+local FOV_RADIUS = 35 
+local MAX_LINE_DISTANCE = 200 
 local TARGET_PART = "Head"
 local CurrentTarget = nil
 
 -- Cấu hình màu sắc mặc định
-local FOVColor = Color3.fromRGB(173, 216, 230) 
-local ESPColor = Color3.fromRGB(0, 162, 255)    
-local DefaultMenuColor = Color3.fromRGB(25, 25, 30) 
-local BlueMenuColor = Color3.fromRGB(15, 30, 55)   
+local FOVColor = Color3.fromRGB(173, 216, 230) 
+local ESPColor = Color3.fromRGB(0, 162, 255)  
+local DefaultMenuColor = Color3.fromRGB(30, 30, 35) -- Màu nền xám tối gốc
+local BlueMenuColor = Color3.fromRGB(10, 40, 75)   -- Màu nền xanh nước biển mờ
 
 -- DANH SÁCH MÀU SẮC ĐỂ THAY ĐỔI TRÊN MENU
 local ColorPresets = {
-    {Name = "Cyan", Color = Color3.fromRGB(0, 162, 255)},
-    {Name = "Red", Color = Color3.fromRGB(255, 0, 0)},
-    {Name = "Green", Color = Color3.fromRGB(0, 255, 0)},
-    {Name = "Yellow", Color = Color3.fromRGB(255, 255, 0)},
-    {Name = "Purple", Color = Color3.fromRGB(170, 0, 255)},
-    {Name = "White", Color = Color3.fromRGB(255, 255, 255)}
+    {Name = "Cyan", Color = Color3.fromRGB(0, 162, 255)},
+    {Name = "Red", Color = Color3.fromRGB(255, 0, 0)},
+    {Name = "Green", Color = Color3.fromRGB(0, 255, 0)},
+    {Name = "Yellow", Color = Color3.fromRGB(255, 255, 0)},
+    {Name = "Purple", Color = Color3.fromRGB(170, 0, 255)},
+    {Name = "White", Color = Color3.fromRGB(255, 255, 255)}
 }
 local currentFOVColorIndex = 1
 local currentESPColorIndex = 1
@@ -45,197 +44,223 @@ FOVCircle.Filled = false
 FOVCircle.Radius = FOV_RADIUS
 FOVCircle.Visible = AimbotEnabled
 
--- KHỞI TẠO 3 ĐƯỜNG TRACER LINES
+-- KHỞI TẠO 3 ĐƯỜNG TRACER LINES CHO 3 KẺ ĐỊCH GẦN NHẤT
 local TracerLines = {}
 for i = 1, 3 do
-    local line = Drawing.new("Line")
-    line.Thickness = 1.5
-    line.Color = Color3.fromRGB(255, 255, 0)
-    line.Transparency = 1
-    line.Visible = false
-    table.insert(TracerLines, line)
+    local line = Drawing.new("Line")
+    line.Thickness = 1.5
+    line.Color = Color3.fromRGB(255, 255, 0)
+    line.Transparency = 1
+    line.Visible = false
+    table.insert(TracerLines, line)
 end
 
 -- LOGIC HÀM BỔ TRỢ (UTILITIES)
 local function isVisible(targetCharacter, targetPart)
-    if not LocalPlayer.Character or not targetCharacter then return false end
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, targetCharacter, Camera}
-    local origin = Camera.CFrame.Position
-    local direction = targetPart.Position - origin
-    local raycastResult = workspace:Raycast(origin, direction, raycastParams)
-    return raycastResult == nil
+    if not LocalPlayer.Character or not targetCharacter then return false end
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, targetCharacter, Camera}
+    local origin = Camera.CFrame.Position
+    local direction = targetPart.Position - origin
+    local raycastResult = workspace:Raycast(origin, direction, raycastParams)
+    return raycastResult == nil
 end
 
 local function getClosestPlayerToCenter()
-    local closestPlayer = nil
-    local shortestDistance = math.huge
-    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(TARGET_PART) then
-            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Health > 0 then
-                local targetPart = player.Character[TARGET_PART]
-                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                if onScreen then
-                    local targetPos2D = Vector2.new(screenPos.X, screenPos.Y)
-                    local distanceToCenter = (targetPos2D - screenCenter).Magnitude
-                    if distanceToCenter <= FOV_RADIUS and distanceToCenter < shortestDistance then
-                        if isVisible(player.Character, targetPart) then
-                            closestPlayer = player
-                            shortestDistance = distanceToCenter
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return closestPlayer
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(TARGET_PART) then
+            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid.Health > 0 then
+                local targetPart = player.Character[TARGET_PART]
+                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                if onScreen then
+                    local targetPos2D = Vector2.new(screenPos.X, screenPos.Y)
+                    local distanceToCenter = (targetPos2D - screenCenter).Magnitude
+                    if distanceToCenter <= FOV_RADIUS and distanceToCenter < shortestDistance then
+                        if isVisible(player.Character, targetPart) then
+                            closestPlayer = player
+                            shortestDistance = distanceToCenter
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
 end
 
+-- LẤY DANH SÁCH TỐI ĐA 3 KẺ ĐỊCH GẦN BẢN THÂN NHẤT
 local function getTop3ClosestPlayersForTracers()
-    local targets = {}
-    local localCharacter = LocalPlayer.Character
-    local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
-    if not localRoot then return targets end
+    local targets = {}
+    local localCharacter = LocalPlayer.Character
+    local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
+    if not localRoot then return targets end
 
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(TARGET_PART) then
-            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-            local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
-            if humanoid and humanoid.Health > 0 and rootPart then
-                local distance = (rootPart.Position - localRoot.Position).Magnitude
-                if distance <= MAX_LINE_DISTANCE then
-                    table.insert(targets, {Player = player, Distance = distance})
-                end
-            end
-        end
-    end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(TARGET_PART) then
+            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+            local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
+            if humanoid and humanoid.Health > 0 and rootPart then
+                local distance = (rootPart.Position - localRoot.Position).Magnitude
+                if distance <= MAX_LINE_DISTANCE then
+                    table.insert(targets, {Player = player, Distance = distance})
+                end
+            end
+        end
+    end
 
-    table.sort(targets, function(a, b) return a.Distance < b.Distance end)
+    -- Sắp xếp danh sách theo khoảng cách từ gần đến xa
+    table.sort(targets, function(a, b)
+        return a.Distance < b.Distance
+    end)
 
-    local top3 = {}
-    for i = 1, math.min(3, #targets) do table.insert(top3, targets[i].Player) end
-    return top3
+    -- Chỉ lấy ra tối đa 3 người gần nhất
+    local top3 = {}
+    for i = 1, math.min(3, #targets) do
+        table.insert(top3, targets[i].Player)
+    end
+    return top3
 end
 
+-- LOGIC XỬ LÝ HIGHLIGHT (ESP)
 local function applyESP(player)
-    if player == LocalPlayer then return end
-    local character = player.Character
-    if character then
-        local highlight = character:FindFirstChildOfClass("Highlight")
-        if not highlight then
-            highlight = Instance.new("Highlight")
-            highlight.Name = "ESPHighlight"
-            highlight.FillTransparency = 0.5 
-            highlight.OutlineColor = Color3.fromRGB(255, 255, 255) 
-            highlight.OutlineTransparency = 0 
-            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop 
-            highlight.Parent = character
-        end
-        highlight.FillColor = ESPColor
-        highlight.Enabled = ESPEnabled
-    end
+    if player == LocalPlayer then return end
+    local character = player.Character
+    if character then
+        local highlight = character:FindFirstChildOfClass("Highlight")
+        if not highlight then
+            highlight = Instance.new("Highlight")
+            highlight.Name = "ESPHighlight"
+            highlight.FillTransparency = 0.5 
+            highlight.OutlineColor = Color3.fromRGB(255, 255, 255) 
+            highlight.OutlineTransparency = 0 
+            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop 
+            highlight.Parent = character
+        end
+        highlight.FillColor = ESPColor
+        highlight.Enabled = ESPEnabled
+    end
 end
 
 local function removeESP(player)
-    local character = player.Character
-    if character then
-        local highlight = character:FindFirstChild("ESPHighlight")
-        if highlight then highlight:Destroy() end
-    end
+    local character = player.Character
+    if character then
+        local highlight = character:FindFirstChild("ESPHighlight")
+        if highlight then highlight:Destroy() end
+    end
 end
 
--- VÒNG LẶP CHÍNH
+-- VÒNG LẶP CHÍNH (MAIN LOOP) - TỐI ƯU NHẠY VÀ MƯỢT HƠN TRÊN RENDERSTEPPED
 local mainConnection = RunService.RenderStepped:Connect(function()
-    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    
-    FOVCircle.Position = screenCenter
-    FOVCircle.Radius = FOV_RADIUS
-    FOVCircle.Color = FOVColor
-    FOVCircle.Visible = AimbotEnabled
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    
+    FOVCircle.Position = screenCenter
+    FOVCircle.Radius = FOV_RADIUS
+    FOVCircle.Color = FOVColor
+    FOVCircle.Visible = AimbotEnabled
 
-    if AimbotEnabled then
-        if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild(TARGET_PART) then
-            local humanoid = CurrentTarget.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Health > 0 then
-                local targetPart = CurrentTarget.Character[TARGET_PART]
-                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                local targetPos2D = Vector2.new(screenPos.X, screenPos.Y)
-                local distanceToCenter = (targetPos2D - screenCenter).Magnitude
+    -- XỬ LÝ AIMBOT (KHÓA TÂM NHẠY CAO)
+    if AimbotEnabled then
+        if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild(TARGET_PART) then
+            local humanoid = CurrentTarget.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid.Health > 0 then
+                local targetPart = CurrentTarget.Character[TARGET_PART]
+                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                local targetPos2D = Vector2.new(screenPos.X, screenPos.Y)
+                local distanceToCenter = (targetPos2D - screenCenter).Magnitude
 
-                if not onScreen or distanceToCenter > FOV_RADIUS or not isVisible(CurrentTarget.Character, targetPart) then
-                    CurrentTarget = nil
-                end
-            else
-                CurrentTarget = nil
-            end
-        else
-            CurrentTarget = nil
-        end
+                if not onScreen or distanceToCenter > FOV_RADIUS or not isVisible(CurrentTarget.Character, targetPart) then
+                    CurrentTarget = nil
+                end
+            else
+                CurrentTarget = nil
+            end
+        else
+            CurrentTarget = nil
+        end
 
-        if not CurrentTarget then CurrentTarget = getClosestPlayerToCenter() end
+        if not CurrentTarget then
+            CurrentTarget = getClosestPlayerToCenter()
+        end
 
-        if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild(TARGET_PART) then
-            local targetPos = CurrentTarget.Character[TARGET_PART].Position
-            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
-        end
-    else
-        CurrentTarget = nil
-    end
+        if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild(TARGET_PART) then
+            -- Khóa cứng trực tiếp góc nhìn vào tọa độ mục tiêu (Bỏ lọc Lerp giúp aim nhạy và dính mục tiêu cao nhất)
+            local targetPos = CurrentTarget.Character[TARGET_PART].Position
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+        end
+    else
+        CurrentTarget = nil
+    end
 
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Health > 0 then applyESP(player) else removeESP(player) end
-        end
-    end
+    -- XỬ LÝ BẬT/TẮT ESP WALLHACK
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid.Health > 0 then
+                applyESP(player)
+            else
+                removeESP(player)
+            end
+        end
+    end
 
-    if ESPEnabled then
-        local closest3Players = getTop3ClosestPlayersForTracers()
-        for i = 1, 3 do
-            local targetPlayer = closest3Players[i]
-            local line = TracerLines[i]
-            if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild(TARGET_PART) then
-                local targetPart = targetPlayer.Character[TARGET_PART]
-                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                if onScreen then
-                    line.From = screenCenter
-                    line.To = Vector2.new(screenPos.X, screenPos.Y)
-                    line.Visible = true
-                else
-                    line.Visible = false
-                end
-            else
-                line.Visible = false
-            end
-        end
-    else
-        for i = 1, 3 do TracerLines[i].Visible = false end
-        for _, player in ipairs(Players:GetPlayers()) do removeESP(player) end
-    end
+    -- XỬ LÝ VẼ ĐỒNG THỜI TRACER LINES TỚI ĐẦU (HEAD) CỦA 3 KẺ ĐỊCH GẦN NHẤT
+    if ESPEnabled then
+        local closest3Players = getTop3ClosestPlayersForTracers()
+        
+        for i = 1, 3 do
+            local targetPlayer = closest3Players[i]
+            local line = TracerLines[i]
+            
+            if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild(TARGET_PART) then
+                local targetPart = targetPlayer.Character[TARGET_PART]
+                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                
+                if onScreen then
+                    line.From = screenCenter
+                    line.To = Vector2.new(screenPos.X, screenPos.Y)
+                    line.Color = Color3.fromRGB(255, 255, 0) -- Giữ nguyên màu vàng
+                    line.Visible = true
+                else
+                    line.Visible = false
+                end
+            else
+                line.Visible = false
+            end
+        end
+    else
+        -- Ẩn toàn bộ line khi tắt ESP
+        for i = 1, 3 do
+            TracerLines[i].Visible = false
+        end
+        for _, player in ipairs(Players:GetPlayers()) do
+            removeESP(player)
+        end
+    end
 end)
 
+-- QUẢN LÝ EVENT PLAYER
 for _, player in ipairs(Players:GetPlayers()) do
-    player.CharacterAdded:Connect(function() task.wait(0.5) if ESPEnabled then applyESP(player) end end)
+    player.CharacterAdded:Connect(function() task.wait(0.5) if ESPEnabled then applyESP(player) end end)
 end
 Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function() task.wait(0.5) if ESPEnabled then applyESP(player) end end)
+    player.CharacterAdded:Connect(function() task.wait(0.5) if ESPEnabled then applyESP(player) end end)
 end)
 Players.PlayerRemoving:Connect(function(player) removeESP(player) end)
 
-
--- =======================================================
--- TẠO GIAO DIỆN HỆ THỐNG MENU (VUỐT LÊN / XUỐNG)
--- =======================================================
+-- TẠO GIAO DIỆN HỆ THỐNG MENU (GUI)
 if PlayerGui:FindFirstChild("MobileCheatMenu") then PlayerGui.MobileCheatMenu:Destroy() end
 
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "MobileCheatMenu"
 ScreenGui.Parent = PlayerGui
 ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 -- Khung Menu Chính
 local MainMenu = Instance.new("Frame")
@@ -243,234 +268,210 @@ MainMenu.Name = "MainMenu"
 MainMenu.Parent = ScreenGui
 MainMenu.BorderSizePixel = 0
 MainMenu.Position = UDim2.new(0.3, 0, 0.25, 0)
-MainMenu.Size = UDim2.new(0, 240, 0, 280) -- Thu gọn chiều cao khung tổng thể lại một chút
+MainMenu.Size = UDim2.new(0, 230, 0, 310)
 MainMenu.Active = true
-MainMenu.ClipsDescendants = true
+MainMenu.ZIndex = 2
+
+-- Thiết lập mặc định nền xanh mờ
+if BlueBackgroundEnabled then
+    MainMenu.BackgroundColor3 = BlueMenuColor
+    MainMenu.BackgroundTransparency = 0.4
+else
+    MainMenu.BackgroundColor3 = DefaultMenuColor
+    MainMenu.BackgroundTransparency = 0
+end
 
 local MenuCorner = Instance.new("UICorner")
-MenuCorner.CornerRadius = UDim.new(0, 12)
+MenuCorner.CornerRadius = UDim.new(0, 10)
 MenuCorner.Parent = MainMenu
 
--- Tiêu đề Menu
 local Title = Instance.new("TextLabel")
 Title.Parent = MainMenu
-Title.Size = UDim2.new(1, 0, 0, 40)
+Title.Size = UDim2.new(1, 0, 0, 30)
 Title.BackgroundTransparency = 1
-Title.Font = Enum.Font.GothamBold
+Title.Font = Enum.Font.SourceSansBold
 Title.Text = "Aimbot l Vua"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.TextSize = 16
 
-local TitleStroke = Instance.new("UIStroke")
-TitleStroke.Color = Color3.fromRGB(0,0,0)
-TitleStroke.Thickness = 1
-TitleStroke.Parent = Title
-
--- KHỞI TẠO KHUNG CUỘN (SCROLLING FRAME) ĐỂ VUỐT NỘI DUNG
-local Container = Instance.new("ScrollingFrame")
-Container.Name = "ButtonContainer"
-Container.Parent = MainMenu
-Container.BackgroundTransparency = 1
-Container.BorderSizePixel = 0
-Container.Position = UDim2.new(0, 0, 0, 40) -- Nằm ngay dưới tiêu đề
-Container.Size = UDim2.new(1, 0, 1, -40) -- Chiếm trọn phần còn lại của Menu
-Container.CanvasSize = UDim2.new(0, 0, 0, 0) -- Sẽ tự động giãn nở theo số nút
-Container.ScrollBarThickness = 4
-Container.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
-Container.ScrollingDirection = Enum.ScrollingDirection.Y -- Chỉ cho vuốt lên/xuống
-
--- Bộ sắp xếp nút tự động (Giúp vuốt mượt, không bị lệch hàng)
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.Parent = Container
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.Padding = UDim.new(0, 8) -- Khoảng cách giữa các nút là 8px
-UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
-local UIPadding = Instance.new("UIPadding")
-UIPadding.Parent = Container
-UIPadding.PaddingTop = UDim.new(0, 5)
-UIPadding.PaddingBottom = UDim.new(0, 10)
-
--- Tự động cập nhật chiều dài vùng vuốt (CanvasSize) khi thêm nút
-UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    Container.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y + 20)
-end)
-
--- Cập nhật màu nền Menu theo biến cấu hình
-local function updateMenuBackground()
-    if BlueBackgroundEnabled then
-        MainMenu.BackgroundColor3 = BlueMenuColor
-        MainMenu.BackgroundTransparency = 0.25
-    else
-        MainMenu.BackgroundColor3 = DefaultMenuColor
-        MainMenu.BackgroundTransparency = 0
-    end
-end
-updateMenuBackground()
-
--- NÚT ĐÓNG / MỞ MENU (Ẩn/Hiện)
+-- NÚT ĐÓNG / MỞ MENU (Có hình nền)
 local MenuButton = Instance.new("TextButton")
 MenuButton.Name = "MenuVisibilityButton"
 MenuButton.Parent = ScreenGui
 MenuButton.Size = UDim2.new(0, 50, 0, 50)
-MenuButton.Position = UDim2.new(MainMenu.Position.X.Scale, MainMenu.Position.X.Offset - 60, MainMenu.Position.Y.Scale, MainMenu.Position.Y.Offset)
-MenuButton.BackgroundColor3 = Color3.fromRGB(0, 162, 255)
-MenuButton.Font = Enum.Font.GothamBold
+MenuButton.Position = UDim2.new(MainMenu.Position.X.Scale, MainMenu.Position.X.Offset - 55, MainMenu.Position.Y.Scale, MainMenu.Position.Y.Offset)
+MenuButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+MenuButton.BackgroundTransparency = 1 
+MenuButton.Font = Enum.Font.SourceSansBold
 MenuButton.Text = "ẨN"
 MenuButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 MenuButton.TextSize = 14
-MenuButton.AutoButtonColor = false
+MenuButton.TextStrokeTransparency = 0.3 
+MenuButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+MenuButton.ZIndex = 4
 
 local ButtonCorner = Instance.new("UICorner")
-ButtonCorner.CornerRadius = UDim.new(0, 25) -- Biến nút ẩn hiện thành hình tròn cho đẹp
+ButtonCorner.CornerRadius = UDim.new(0, 8)
 ButtonCorner.Parent = MenuButton
 
-local ButtonStroke = Instance.new("UIStroke")
-ButtonStroke.Color = Color3.fromRGB(255, 255, 255)
-ButtonStroke.Thickness = 1.5
-ButtonStroke.Transparency = 0.4
-ButtonStroke.Parent = MenuButton
+-- TẠO BACKGROUND HÌNH ẢNH CHO NÚT BẤM
+local ButtonImage = Instance.new("ImageLabel")
+ButtonImage.Name = "ButtonBackground"
+ButtonImage.Parent = MenuButton
+ButtonImage.Size = UDim2.new(1, 0, 1, 0)
+ButtonImage.BackgroundTransparency = 1
+ButtonImage.Image = "rbxassetid://YOUR_IMAGE_ID_HERE" 
+ButtonImage.ScaleType = Enum.ScaleType.Crop
+ButtonImage.ZIndex = 3
 
--- Hàm tạo Nút Bật/Tắt (Toggle) có hiệu ứng chuyển màu mượt
-local function createToggle(name, textON, textOFF, defaultState, callback)
-    local btn = Instance.new("TextButton")
-    btn.Name = name
-    btn.Parent = Container
-    btn.Size = UDim2.new(0, 210, 0, 35) -- Tăng kích thước nút để dễ chạm trúng hơn
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 13
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.AutoButtonColor = false
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
+local ImageCorner = Instance.new("UICorner")
+ImageCorner.CornerRadius = UDim.new(0, 8)
+ImageCorner.Parent = ButtonImage
 
-    local state = defaultState
-    local function updateView(instant)
-        local targetColor = state and Color3.fromRGB(0, 170, 100) or Color3.fromRGB(170, 50, 50)
-        btn.Text = state and textON or textOFF
-        if instant then
-            btn.BackgroundColor3 = targetColor
-        else
-            TweenService:Create(btn, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {BackgroundColor3 = targetColor}):Play()
-        end
-    end
-    updateView(true)
+-- Hàm tạo Nút Bật/Tắt (Toggle) nhanh
+local function createToggle(name, textON, textOFF, pos, defaultState, callback)
+    local btn = Instance.new("TextButton")
+    btn.Name = name
+    btn.Parent = MainMenu
+    btn.Size = UDim2.new(0, 200, 0, 30)
+    btn.Position = pos
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 14
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = btn
 
-    btn.MouseButton1Click:Connect(function()
-        state = not state
-        updateView(false)
-        callback(state)
-    end)
-    return btn
+    local state = defaultState
+    local function updateView()
+        if state then
+            btn.Text = textON
+            btn.BackgroundColor3 = Color3.fromRGB(0, 170, 100)
+        else
+            btn.Text = textOFF
+            btn.BackgroundColor3 = Color3.fromRGB(170, 50, 50)
+        end
+    end
+    updateView()
+
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        updateView()
+        callback(state)
+    end)
+    return btn
 end
 
--- Hàm tạo các nút chức năng thường
-local function createActionBtn(text, callback)
-    local btn = Instance.new("TextButton")
-    btn.Parent = Container
-    btn.Size = UDim2.new(0, 210, 0, 32)
-    btn.BackgroundColor3 = Color3.fromRGB(50, 55, 65)
-    btn.Font = Enum.Font.GothamBold
-    btn.Text = text
-    btn.TextColor3 = Color3.fromRGB(230, 230, 230)
-    btn.TextSize = 12
-    btn.AutoButtonColor = true
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
-    
-    btn.MouseButton1Click:Connect(callback)
-    return btn
+-- Hàm tạo các nút thay đổi cấu hình dữ liệu
+local function createActionBtn(text, pos, callback)
+    local btn = Instance.new("TextButton")
+    btn.Parent = MainMenu
+    btn.Size = UDim2.new(0, 200, 0, 25)
+    btn.Position = pos
+    btn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    btn.Font = Enum.Font.SourceSansBold
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(220, 220, 220)
+    btn.TextSize = 13
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = btn
+    
+    btn.MouseButton1Click:Connect(callback)
+    return btn
 end
 
--- Khởi tạo các nút chức năng bên trong vùng vuốt (Container)
-local AimToggle = createToggle("AimToggle", "AIMBOT: BẬT", "AIMBOT: TẮT", AimbotEnabled, function(v) AimbotEnabled = v end)
-local ESPToggle = createToggle("ESPToggle", "ESP XUYÊN TƯỜNG: BẬT", "ESP XUYÊN TƯỜNG: TẮT", ESPEnabled, function(v) ESPEnabled = v end)
+-- Tạo các phần tử điều khiển bên trong Menu
+local AimToggle = createToggle("AimToggle", "AIMBOT: BẬT", "AIMBOT: TẮT", UDim2.new(0, 15, 0, 40), AimbotEnabled, function(v) AimbotEnabled = v end)
+local ESPToggle = createToggle("ESPToggle", "ESP XUYÊN TƯỜNG: BẬT", "ESP XUYÊN TƯỜNG: TẮT", UDim2.new(0, 15, 0, 75), ESPEnabled, function(v) ESPEnabled = v end)
 
-local FOVPlus = createActionBtn("TĂNG BÁN KÍNH FOV (+10)", function() FOV_RADIUS = math.clamp(FOV_RADIUS + 10, 10, 300) end)
-local FOVMinus = createActionBtn("GIẢM BÁN KÍNH FOV (-10)", function() FOV_RADIUS = math.clamp(FOV_RADIUS - 10, 10, 300) end)
+local FOVPlus = createActionBtn("TĂNG BÁN KÍNH FOV (+10)", UDim2.new(0, 15, 0, 115), function()
+    FOV_RADIUS = math.clamp(FOV_RADIUS + 10, 10, 300)
+end)
+local FOVMinus = createActionBtn("GIẢM BÁN KÍNH FOV (-10)", UDim2.new(0, 15, 0, 145), function()
+    FOV_RADIUS = math.clamp(FOV_RADIUS - 10, 10, 300)
+end)
 
 local FOVColorBtn
-FOVColorBtn = createActionBtn("MÀU VÒNG TRÒN: Cyan", function()
-    currentFOVColorIndex = currentFOVColorIndex + 1
-    if currentFOVColorIndex > #ColorPresets then currentFOVColorIndex = 1 end
-    FOVColor = ColorPresets[currentFOVColorIndex].Color
-    FOVColorBtn.Text = "MÀU VÒNG TRÒN: " .. ColorPresets[currentFOVColorIndex].Name
+FOVColorBtn = createActionBtn("MÀU VÒNG TRÒN: Cyan", UDim2.new(0, 15, 0, 180), function()
+    currentFOVColorIndex = currentFOVColorIndex + 1
+    if currentFOVColorIndex > #ColorPresets then currentFOVColorIndex = 1 end
+    FOVColor = ColorPresets[currentFOVColorIndex].Color
+    FOVColorBtn.Text = "MÀU VÒNG TRÒN: " .. ColorPresets[currentFOVColorIndex].Name
 end)
 
 local ESPColorBtn
-ESPColorBtn = createActionBtn("MÀU ESP KHỐI: Cyan", function()
-    currentESPColorIndex = currentESPColorIndex + 1
-    if currentESPColorIndex > #ColorPresets then currentESPColorIndex = 1 end
-    ESPColor = ColorPresets[currentESPColorIndex].Color
-    ESPColorBtn.Text = "MÀU ESP KHỐI: " .. ColorPresets[currentESPColorIndex].Name
+ESPColorBtn = createActionBtn("MÀU ESP KHỐI: Cyan", UDim2.new(0, 15, 0, 215), function()
+    currentESPColorIndex = currentESPColorIndex + 1
+    if currentESPColorIndex > #ColorPresets then currentESPColorIndex = 1 end
+    ESPColor = ColorPresets[currentESPColorIndex].Color
+    ESPColorBtn.Text = "MÀU ESP KHỐI: " .. ColorPresets[currentESPColorIndex].Name
 end)
 
 local BackgroundToggle
-BackgroundToggle = createToggle("BackgroundToggle", "NỀN MENU: XANH MỜ", "NỀN MENU: MẶC ĐỊNH", BlueBackgroundEnabled, function(v)
-    BlueBackgroundEnabled = v
-    updateMenuBackground()
+BackgroundToggle = createToggle("BackgroundToggle", "NỀN MENU: XANH MỜ", "NỀN MENU: MẶC ĐỊNH", UDim2.new(0, 15, 0, 250), BlueBackgroundEnabled, function(v)
+    BlueBackgroundEnabled = v
+    if BlueBackgroundEnabled then
+        MainMenu.BackgroundColor3 = BlueMenuColor
+        MainMenu.BackgroundTransparency = 0.4
+    else
+        MainMenu.BackgroundColor3 = DefaultMenuColor
+        MainMenu.BackgroundTransparency = 0
+    end
 end)
 
--- Sự kiện Đóng/Mở Menu chính kèm Hiệu ứng mượt mà
+-- Sự kiện Đóng/Mở Menu chính khi nhấn nút phụ
 MenuButton.MouseButton1Click:Connect(function()
-    MenuVisible = not MenuVisible
-    MainMenu.Visible = MenuVisible
-    MenuButton.Text = MenuVisible and "ẨN" or "HIỆN"
-    TweenService:Create(MenuButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
-        BackgroundColor3 = MenuVisible and Color3.fromRGB(0, 162, 255) or Color3.fromRGB(200, 50, 50)
-    }):Play()
+    MenuVisible = not MenuVisible
+    MainMenu.Visible = MenuVisible
+    if MenuVisible then
+        MenuButton.Text = "ẨN"
+    else
+        MenuButton.Text = "HIỆN"
+    end
 end)
 
--- XỬ LÝ DI CHUYỂN ĐỒNG BỘ (DRAGGABLE) MƯỢT MÀ BẰNG TWEEN
+-- XỬ LÝ DI CHUYỂN ĐỒNG BỘ (DRAGGABLE) GIỮA MENU VÀ NÚT BẤM TRÊN MOBILE TOUCH
 local dragging = false
 local dragInput, dragStart, startPos, startBtnPos
 
 local function updateMenuPos(input)
-    local delta = input.Position - dragStart
-    local targetMenuPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    local targetBtnPos = UDim2.new(startBtnPos.X.Scale, startBtnPos.X.Offset + delta.X, startBtnPos.Y.Scale, startBtnPos.Y.Offset + delta.Y)
-    
-    -- Dùng Tween thời gian cực ngắn (0.05 giây) để loại bỏ hiện tượng giật lắc khi kéo thả trên Mobile
-    TweenService:Create(MainMenu, TweenInfo.new(0.05, Enum.EasingStyle.OutQuad), {Position = targetMenuPos}):Play()
-    TweenService:Create(MenuButton, TweenInfo.new(0.05, Enum.EasingStyle.OutQuad), {Position = targetBtnPos}):Play()
+    local delta = input.Position - dragStart
+    MainMenu.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    MenuButton.Position = UDim2.new(startBtnPos.X.Scale, startBtnPos.X.Offset + delta.X, startBtnPos.Y.Scale, startBtnPos.Y.Offset + delta.Y)
 end
 
 local function handleDrag(guiObject)
-    guiObject.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            -- Nếu đang vuốt nội dung bên trong ScrollingFrame thì KHÔNG kích hoạt kéo menu đi chỗ khác
-            if UserInputService:GetFocusedTextBox() then return end
-            
-            dragging = true
-            dragStart = input.Position
-            startPos = MainMenu.Position
-            startBtnPos = MenuButton.Position
-            
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then 
-                    dragging = false 
-                end
-            end)
-        end
-    end)
+    guiObject.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = MainMenu.Position
+            startBtnPos = MenuButton.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then 
+                    dragging = false 
+                end
+            end)
+        end
+    end)
 
-    guiObject.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
-            dragInput = input
-        end
-    end)
+    guiObject.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
 end
 
--- Kích hoạt di chuyển khi kéo vùng Tiêu đề (Title) hoặc nút Ẩn/Hiện
-handleDrag(Title)
+-- Kích hoạt tính năng di chuyển đồng bộ trên cả Khung Menu và Nút Ẩn/Hiện
+handleDrag(MainMenu)
 handleDrag(MenuButton)
 
 UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        updateMenuPos(input)
-    end
+    if input == dragInput and dragging then
+        updateMenuPos(input)
+    end
 end)
