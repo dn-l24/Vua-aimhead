@@ -16,6 +16,9 @@ local ESPEnabled = true
 local BlueBackgroundEnabled = true -- Mặc định là nền xanh mờ (BẬT)
 local MenuVisible = true -- Trạng thái ẩn/hiện của bảng menu chính
 local FPSToggleState = false -- Chức năng tăng FPS mặc định là TẮT
+local FlyEnabled = false -- Chức năng Bay mặc định là TẮT
+local FlySpeed = 50 -- Tốc độ bay mặc định
+local SpinEnabled = false -- Chức năng Quay mặc định là TẮT
 local FOV_RADIUS = 35 
 local MAX_LINE_DISTANCE = 200 
 local TARGET_PART = "Head"
@@ -97,7 +100,6 @@ local function getClosestPlayerToCenter()
     return closestPlayer
 end
 
--- LẤY DANH SÁCH TỐI ĐA 3 KẺ ĐỊCH GẦN BẢN THÂN NHẤT
 local function getTop3ClosestPlayersForTracers()
     local targets = {}
     local localCharacter = LocalPlayer.Character
@@ -117,12 +119,10 @@ local function getTop3ClosestPlayersForTracers()
         end
     end
 
-    -- Sắp xếp danh sách theo khoảng cách từ gần đến xa
     table.sort(targets, function(a, b)
         return a.Distance < b.Distance
     end)
 
-    -- Chỉ lấy ra tối đa 3 người gần nhất
     local top3 = {}
     for i = 1, math.min(3, #targets) do
         table.insert(top3, targets[i].Player)
@@ -130,12 +130,11 @@ local function getTop3ClosestPlayersForTracers()
     return top3
 end
 
--- LOGIC XỬ LÝ HIGHLIGHT (ESP)
 local function applyESP(player)
     if player == LocalPlayer then return end
     local character = player.Character
     if character then
-        local highlight = character:FindFirstChildOfClass("Highlight")
+        local highlight = character:FindFirstChild("ESPHighlight")
         if not highlight then
             highlight = Instance.new("Highlight")
             highlight.Name = "ESPHighlight"
@@ -158,7 +157,12 @@ local function removeESP(player)
     end
 end
 
--- CHỨC NĂNG TĂNG FPS (XÓA ĐỒ HỌA/TỐI ƯU HÓA)
+local function clearAllESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        removeESP(player)
+    end
+end
+
 local HiddenPlayers = {}
 local function IsImportant(instance)
     local name = string.lower(instance.Name)
@@ -181,12 +185,12 @@ local function SmartOptimize(instance)
         end
     elseif instance:IsA("ParticleEmitter") or instance:IsA("Smoke") or instance:IsA("Fire") or instance:IsA("Sparkles") or instance:IsA("Trail") or instance:IsA("Beam") then
         task.spawn(function()
-            instance:Destroy()
+            if instance and instance.Parent then instance:Destroy() end
         end)
     elseif instance:IsA("Decal") or instance:IsA("Texture") then
         if instance.Parent and not IsImportant(instance.Parent) then
             task.spawn(function()
-                instance:Destroy()
+                if instance and instance.Parent then instance:Destroy() end
             end)
         end
     end
@@ -196,7 +200,6 @@ local function ExecuteSmartFPSBooster()
     if _G.SmartFPSBoosterExecuted then return end
     _G.SmartFPSBoosterExecuted = true
 
-    -- Tối ưu Ánh sáng (Lighting)
     Lighting.GlobalShadows = false
     Lighting.Brightness = 1
     Lighting.ClockTime = 12
@@ -206,11 +209,10 @@ local function ExecuteSmartFPSBooster()
         end
     end
 
-    -- Quét Map ban đầu bằng task.spawn và chia nhỏ bằng Heartbeat
     task.spawn(function()
         local count = 0
         for _, descendant in ipairs(Workspace:GetDescendants()) do
-            if descendant:IsDescendantOf(LocalPlayer.Character or workspace) and not descendant:IsDescendantOf(LocalPlayer.Character) then
+            if not descendant:IsDescendantOf(LocalPlayer.Character or workspace) then
                 SmartOptimize(descendant)
                 count = count + 1
                 if count >= 150 then
@@ -221,61 +223,176 @@ local function ExecuteSmartFPSBooster()
         end
     end)
 
-    -- Đón đầu hiệu ứng mới xuất hiện
     Workspace.DescendantAdded:Connect(function(descendant)
         if LocalPlayer.Character and descendant:IsDescendantOf(LocalPlayer.Character) then return end
         SmartOptimize(descendant)
     end)
 
-    -- Cơ chế ẩn người chơi ở quá xa (Mỗi 3 giây)
     task.spawn(function()
         while true do
             task.wait(3)
-            local localCharacter = LocalPlayer.Character
-            local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
-            if localRoot then
-                for _, player in ipairs(Players:GetPlayers()) do
-                    if player ~= LocalPlayer and player.Character then
-                        local char = player.Character
-                        local root = char:FindFirstChild("HumanoidRootPart")
-                        if root then
-                            local distance = (root.Position - localRoot.Position).Magnitude
-                            if distance > 250 then
-                                if char.Parent == Workspace then
-                                    HiddenPlayers[player] = char
-                                    char.Parent = nil
-                                end
-                            else
-                                if HiddenPlayers[player] and HiddenPlayers[player].Parent == nil then
-                                    HiddenPlayers[player].Parent = Workspace
-                                    HiddenPlayers[player] = nil
+            if FPSToggleState then
+                local localCharacter = LocalPlayer.Character
+                local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
+                if localRoot then
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if player ~= LocalPlayer and player.Character then
+                            local char = player.Character
+                            local root = char:FindFirstChild("HumanoidRootPart")
+                            if root then
+                                local distance = (root.Position - localRoot.Position).Magnitude
+                                if distance > 250 then
+                                    if char.Parent == Workspace then
+                                        HiddenPlayers[player] = char
+                                        char.Parent = nil
+                                    end
+                                else
+                                    if HiddenPlayers[player] and HiddenPlayers[player].Parent == nil then
+                                        HiddenPlayers[player].Parent = Workspace
+                                        HiddenPlayers[player] = nil
+                                    end
                                 end
                             end
                         end
                     end
                 end
-                -- Kiểm tra danh sách người chơi đã thoát game để dọn dẹp bộ nhớ ẩn
+            else
                 for player, char in pairs(HiddenPlayers) do
-                    if not player.Parent then
-                        HiddenPlayers[player] = nil
+                    if char and player.Parent then
+                        char.Parent = Workspace
                     end
+                    HiddenPlayers[player] = nil
+                end
+            end
+            
+            for player, char in pairs(HiddenPlayers) do
+                if not player.Parent then
+                    HiddenPlayers[player] = nil
                 end
             end
         end
     end)
 
-    -- Giải phóng RAM định kỳ (Mỗi 20 giây)
     task.spawn(function()
         while true do
             task.wait(20)
-            gcinfo()
-            settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+            if FPSToggleState then
+                gcinfo()
+                settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+            end
         end
     end)
 end
 
--- VÒNG LẶP CHÍNH (MAIN LOOP) - TỐI ƯU NHẠY VÀ MƯỢT HƠN TRÊN RENDERSTEPPED
-local mainConnection = RunService.RenderStepped:Connect(function()
+-- HỆ THỐNG XỬ LÝ FLY (BAY) - ĐÃ FIX LỖI BAY NGƯỢC BIẾN THIÊN THEO CAMERA
+local flyConnection = nil
+local bodyVelocity = nil
+local bodyGyro = nil
+
+local function StartFly()
+    if flyConnection then flyConnection:Disconnect() end
+    
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    
+    if not rootPart or not humanoid then return end
+
+    bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.Name = "FlyVelocity"
+    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    bodyVelocity.Parent = rootPart
+
+    bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.Name = "FlyGyro"
+    bodyGyro.CFrame = rootPart.CFrame
+    bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    bodyGyro.P = 9000
+    bodyGyro.Parent = rootPart
+
+    humanoid.PlatformStand = true
+
+    flyConnection = RunService.RenderStepped:Connect(function()
+        if not FlyEnabled or not rootPart or not character.Parent then
+            if flyConnection then
+                flyConnection:Disconnect()
+                flyConnection = nil
+            end
+            return
+        end
+
+        bodyGyro.CFrame = Camera.CFrame
+        local walkDir = humanoid.MoveDirection
+
+        if walkDir.Magnitude > 0 then
+            -- Áp dụng phép chiếu vector để loại bỏ lỗi đảo ngược trục dựa trên tọa độ thế giới (World Space)
+            local camFrame = Camera.CFrame
+            local flatCamLook = Vector3.new(camFrame.LookVector.X, 0, camFrame.LookVector.Z).Unit
+            local flatCamRight = Vector3.new(camFrame.RightVector.X, 0, camFrame.RightVector.Z).Unit
+            
+            -- Tính toán tỉ lệ di chuyển tương đối so với góc xoay phẳng của Camera
+            local localZ = walkDir:Dot(flatCamLook)
+            local localX = walkDir:Dot(flatCamRight)
+            
+            -- Đồng bộ hóa vector di chuyển 3D thực tế theo đúng Vector Look hướng nhìn của Camera (Fix hoàn toàn bay ngược)
+            local flightVector = (camFrame.LookVector * localZ + camFrame.RightVector * localX)
+            if flightVector.Magnitude > 0 then
+                bodyVelocity.Velocity = flightVector.Unit * FlySpeed
+            else
+                bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+            end
+        else
+            bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        end
+    end)
+end
+
+local function StopFly()
+    if flyConnection then
+        flyConnection:Disconnect()
+        flyConnection = nil
+    end
+    
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+    if rootPart then
+        local fV = rootPart:FindFirstChild("FlyVelocity")
+        local fG = rootPart:FindFirstChild("FlyGyro")
+        if fV then fV:Destroy() end
+        if fG then fG:Destroy() end
+    end
+
+    if humanoid then
+        humanoid.PlatformStand = false
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    if FlyEnabled then
+        task.wait(1)
+        StartFly()
+    end
+end)
+
+-- HỆ THỐNG SPIN (QUAY NHÂN VẬT)
+local spinConnection = nil
+task.spawn(function()
+    RunService.Heartbeat:Connect(function()
+        if SpinEnabled and not FlyEnabled then
+            local character = LocalPlayer.Character
+            local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+            if rootPart then
+                rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, math.rad(25), 0)
+            end
+        end
+    end)
+end)
+
+-- VÒNG LẶP CHÍNH (MAIN LOOP)
+RunService.RenderStepped:Connect(function()
     local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     
     FOVCircle.Position = screenCenter
@@ -283,7 +400,7 @@ local mainConnection = RunService.RenderStepped:Connect(function()
     FOVCircle.Color = FOVColor
     FOVCircle.Visible = AimbotEnabled
 
-    -- XỬ LÝ AIMBOT (KHÓA TÂM NHẠY CAO)
+    -- LOGIC AIMBOT
     if AimbotEnabled then
         if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild(TARGET_PART) then
             local humanoid = CurrentTarget.Character:FindFirstChildOfClass("Humanoid")
@@ -296,8 +413,6 @@ local mainConnection = RunService.RenderStepped:Connect(function()
                 if not onScreen or distanceToCenter > FOV_RADIUS or not isVisible(CurrentTarget.Character, targetPart) then
                     CurrentTarget = nil
                 end
-            else
-                CurrentTarget = nil
             end
         else
             CurrentTarget = nil
@@ -308,7 +423,6 @@ local mainConnection = RunService.RenderStepped:Connect(function()
         end
 
         if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild(TARGET_PART) then
-            -- Khóa cứng trực tiếp góc nhìn vào tọa độ mục tiêu (Bỏ lọc Lerp giúp aim nhạy và dính mục tiêu cao nhất)
             local targetPos = CurrentTarget.Character[TARGET_PART].Position
             Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
         end
@@ -316,23 +430,20 @@ local mainConnection = RunService.RenderStepped:Connect(function()
         CurrentTarget = nil
     end
 
-    -- XỬ LÝ BẬT/TẮT ESP WALLHACK
-    for _, player in ipairs(Players:GetPlayers()) do
-        -- Đảm bảo người chơi không bị ẩn bởi cơ chế tối ưu khoảng cách trước khi áp dụng ESP
-        if player ~= LocalPlayer and player.Character and player.Character.Parent == Workspace then
-            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Health > 0 then
-                applyESP(player)
-            else
-                removeESP(player)
+    -- LOGIC ESP KHỐI & TRACERS LINE
+    if ESPEnabled then
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and player.Character.Parent == Workspace then
+                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                if humanoid and humanoid.Health > 0 then
+                    applyESP(player)
+                else
+                    removeESP(player)
+                end
             end
         end
-    end
 
-    -- XỬ LÝ VẼ ĐỒNG THỜI TRACER LINES TỚI ĐẦU (HEAD) CỦA 3 KẺ ĐỊCH GẦN NHẤT
-    if ESPEnabled then
         local closest3Players = getTop3ClosestPlayersForTracers()
-        
         for i = 1, 3 do
             local targetPlayer = closest3Players[i]
             local line = TracerLines[i]
@@ -344,7 +455,7 @@ local mainConnection = RunService.RenderStepped:Connect(function()
                 if onScreen then
                     line.From = screenCenter
                     line.To = Vector2.new(screenPos.X, screenPos.Y)
-                    line.Color = Color3.fromRGB(255, 255, 0) -- Giữ nguyên màu vàng
+                    line.Color = Color3.fromRGB(255, 255, 0)
                     line.Visible = true
                 else
                     line.Visible = false
@@ -354,26 +465,37 @@ local mainConnection = RunService.RenderStepped:Connect(function()
             end
         end
     else
-        -- Ẩn toàn bộ line khi tắt ESP
         for i = 1, 3 do
             TracerLines[i].Visible = false
         end
-        for _, player in ipairs(Players:GetPlayers()) do
-            removeESP(player)
-        end
+        clearAllESP()
     end
 end)
 
--- QUẢN LÝ EVENT PLAYER
-for _, player in ipairs(Players:GetPlayers()) do
-    player.CharacterAdded:Connect(function() task.wait(0.5) if ESPEnabled and player.Character.Parent == Workspace then applyESP(player) end end)
+-- Quản lý nạp/tải lại ESP khi nhân vật hồi sinh
+local function setupPlayerConnections(player)
+    player.CharacterAdded:Connect(function(character) 
+        task.wait(0.5) 
+        if ESPEnabled and character.Parent == Workspace then 
+            applyESP(player) 
+        end 
+    end)
 end
-Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function() task.wait(0.5) if ESPEnabled and player.Character.Parent == Workspace then applyESP(player) end end)
-end)
-Players.PlayerRemoving:Connect(function(player) removeESP(player) if HiddenPlayers[player] then HiddenPlayers[player] = nil end end)
 
--- TẠO GIAO DIỆN HỆ THỐNG MENU (GUI)
+for _, player in ipairs(Players:GetPlayers()) do
+    setupPlayerConnections(player)
+end
+
+Players.PlayerAdded:Connect(setupPlayerConnections)
+
+Players.PlayerRemoving:Connect(function(player) 
+    removeESP(player) 
+    if HiddenPlayers[player] then 
+        HiddenPlayers[player] = nil 
+    end 
+end)
+
+-- TẠO GIAO DIỆN HỆ THỐNG MENU KIỂU DASHBOARD
 if PlayerGui:FindFirstChild("MobileCheatMenu") then PlayerGui.MobileCheatMenu:Destroy() end
 
 local ScreenGui = Instance.new("ScreenGui")
@@ -382,39 +504,88 @@ ScreenGui.Parent = PlayerGui
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
--- Khung Menu Chính (Tăng chiều cao lên 345 để chứa thêm nút FPS)
 local MainMenu = Instance.new("Frame")
 MainMenu.Name = "MainMenu"
 MainMenu.Parent = ScreenGui
 MainMenu.BorderSizePixel = 0
-MainMenu.Position = UDim2.new(0.3, 0, 0.25, 0)
-MainMenu.Size = UDim2.new(0, 230, 0, 345)
+MainMenu.Position = UDim2.new(0.2, 0, 0.2, 0)
+MainMenu.Size = UDim2.new(0, 520, 0, 320)
 MainMenu.Active = true
 MainMenu.ZIndex = 2
 
--- Thiết lập mặc định nền xanh mờ
-if BlueBackgroundEnabled then
-    MainMenu.BackgroundColor3 = BlueMenuColor
-    MainMenu.BackgroundTransparency = 0.4
-else
-    MainMenu.BackgroundColor3 = DefaultMenuColor
-    MainMenu.BackgroundTransparency = 0
+local function updateMenuBackground()
+    if BlueBackgroundEnabled then
+        MainMenu.BackgroundColor3 = BlueMenuColor
+        MainMenu.BackgroundTransparency = 0.2
+    else
+        MainMenu.BackgroundColor3 = DefaultMenuColor
+        MainMenu.BackgroundTransparency = 0
+    end
 end
+updateMenuBackground()
 
 local MenuCorner = Instance.new("UICorner")
 MenuCorner.CornerRadius = UDim.new(0, 10)
 MenuCorner.Parent = MainMenu
 
+local TopBar = Instance.new("Frame")
+TopBar.Name = "TopBar"
+TopBar.Parent = MainMenu
+TopBar.Size = UDim2.new(1, 0, 0, 35)
+TopBar.BackgroundTransparency = 1
+
 local Title = Instance.new("TextLabel")
-Title.Parent = MainMenu
-Title.Size = UDim2.new(1, 0, 0, 30)
+Title.Parent = TopBar
+Title.Size = UDim2.new(0, 200, 1, 0)
+Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
 Title.Font = Enum.Font.SourceSansBold
 Title.Text = "Aimbot l Vua"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.TextSize = 16
+Title.TextXAlignment = Enum.TextXAlignment.Left
 
--- NÚT ĐÓNG / MỞ MENU (Có hình nền)
+local Sidebar = Instance.new("Frame")
+Sidebar.Name = "Sidebar"
+Sidebar.Parent = MainMenu
+Sidebar.Position = UDim2.new(0, 10, 0, 45)
+Sidebar.Size = UDim2.new(0, 140, 1, -55)
+Sidebar.BackgroundTransparency = 0.9
+Sidebar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+
+local SidebarCorner = Instance.new("UICorner")
+SidebarCorner.CornerRadius = UDim.new(0, 8)
+SidebarCorner.Parent = Sidebar
+
+local SidebarLayout = Instance.new("UIListLayout")
+SidebarLayout.Parent = Sidebar
+SidebarLayout.Padding = UDim.new(0, 5)
+SidebarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+SidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local ContentContainer = Instance.new("ScrollingFrame")
+ContentContainer.Name = "ContentContainer"
+ContentContainer.Parent = MainMenu
+ContentContainer.Position = UDim2.new(0, 160, 0, 45)
+ContentContainer.Size = UDim2.new(1, -170, 1, -55)
+ContentContainer.BackgroundTransparency = 1
+ContentContainer.ClipsDescendants = true
+ContentContainer.ScrollBarThickness = 4
+ContentContainer.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
+ContentContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+ContentContainer.ElasticBehavior = Enum.ElasticBehavior.Always
+ContentContainer.ScrollingDirection = Enum.ScrollingDirection.Y
+
+local ContentLayout = Instance.new("UIListLayout")
+ContentLayout.Parent = ContentContainer
+ContentLayout.Padding = UDim.new(0, 8)
+ContentLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+ContentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+ContentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ContentContainer.CanvasSize = UDim2.new(0, 0, 0, ContentLayout.AbsoluteContentSize.Y + 15)
+end)
+
 local MenuButton = Instance.new("TextButton")
 MenuButton.Name = "MenuVisibilityButton"
 MenuButton.Parent = ScreenGui
@@ -434,7 +605,6 @@ local ButtonCorner = Instance.new("UICorner")
 ButtonCorner.CornerRadius = UDim.new(0, 8)
 ButtonCorner.Parent = MenuButton
 
--- TẠO BACKGROUND HÌNH ẢNH CHO NÚT BẤM
 local ButtonImage = Instance.new("ImageLabel")
 ButtonImage.Name = "ButtonBackground"
 ButtonImage.Parent = MenuButton
@@ -448,13 +618,11 @@ local ImageCorner = Instance.new("UICorner")
 ImageCorner.CornerRadius = UDim.new(0, 8)
 ImageCorner.Parent = ButtonImage
 
--- Hàm tạo Nút Bật/Tắt (Toggle) nhanh
-local function createToggle(name, textON, textOFF, pos, defaultState, callback)
+local function createToggle(name, textON, textOFF, defaultState, callback)
     local btn = Instance.new("TextButton")
+    local state = defaultState
     btn.Name = name
-    btn.Parent = MainMenu
-    btn.Size = UDim2.new(0, 200, 0, 30)
-    btn.Position = pos
+    btn.Size = UDim2.new(0, 320, 0, 35)
     btn.Font = Enum.Font.SourceSansBold
     btn.TextSize = 14
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -463,7 +631,6 @@ local function createToggle(name, textON, textOFF, pos, defaultState, callback)
     corner.CornerRadius = UDim.new(0, 6)
     corner.Parent = btn
 
-    local state = defaultState
     local function updateView()
         if state then
             btn.Text = textON
@@ -483,12 +650,9 @@ local function createToggle(name, textON, textOFF, pos, defaultState, callback)
     return btn
 end
 
--- Hàm tạo các nút thay đổi cấu hình dữ liệu
-local function createActionBtn(text, pos, callback)
+local function createActionBtn(text, callback)
     local btn = Instance.new("TextButton")
-    btn.Parent = MainMenu
-    btn.Size = UDim2.new(0, 200, 0, 25)
-    btn.Position = pos
+    btn.Size = UDim2.new(0, 320, 0, 32)
     btn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
     btn.Font = Enum.Font.SourceSansBold
     btn.Text = text
@@ -503,70 +667,151 @@ local function createActionBtn(text, pos, callback)
     return btn
 end
 
--- Tạo các phần tử điều khiển bên trong Menu
-local AimToggle = createToggle("AimToggle", "AIMBOT: BẬT", "AIMBOT: TẮT", UDim2.new(0, 15, 0, 40), AimbotEnabled, function(v) AimbotEnabled = v end)
-local ESPToggle = createToggle("ESPToggle", "ESP XUYÊN TƯỜNG: BẬT", "ESP XUYÊN TƯỜNG: TẮT", UDim2.new(0, 15, 0, 75), ESPEnabled, function(v) ESPEnabled = v end)
+local Tabs = {Main = {}, Sub = {}}
 
-local FOVPlus = createActionBtn("TĂNG BÁN KÍNH FOV (+10)", UDim2.new(0, 15, 0, 115), function()
+local function createTabButton(name, layoutOrder)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 125, 0, 35)
+    btn.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+    btn.Font = Enum.Font.SourceSansBold
+    btn.Text = name
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 13
+    btn.LayoutOrder = layoutOrder
+    btn.Parent = Sidebar
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = btn
+    return btn
+end
+
+local MainTabBtn = createTabButton("Chức Năng Chính", 1)
+local SubTabBtn = createTabButton("Chức Năng Phụ", 2)
+
+local function displayTab(tabName)
+    for _, instance in ipairs(ContentContainer:GetChildren()) do
+        if instance:IsA("TextButton") then
+            instance.Visible = false
+        end
+    end
+    for _, instance in ipairs(Tabs[tabName]) do
+        instance.Visible = true
+    end
+    
+    if tabName == "Main" then
+        MainTabBtn.BackgroundColor3 = Color3.fromRGB(0, 162, 255)
+        SubTabBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+    else
+        MainTabBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+        SubTabBtn.BackgroundColor3 = Color3.fromRGB(0, 162, 255)
+    end
+    ContentContainer.CanvasPosition = Vector2.new(0, 0)
+end
+
+-- TAB CHÍNH (ĐÃ CHUYỂN ESP XUYÊN TƯỜNG LÊN ĐÂY)
+local AimToggle = createToggle("AimToggle", "AIMBOT: BẬT", "AIMBOT: TẮT", AimbotEnabled, function(v) AimbotEnabled = v end)
+AimToggle.Parent = ContentContainer
+table.insert(Tabs.Main, AimToggle)
+
+local ESPToggle = createToggle("ESPToggle", "ESP XUYÊN TƯỜNG: BẬT", "ESP XUYÊN TƯỜNG: TẮT", ESPEnabled, function(v) ESPEnabled = v end)
+ESPToggle.Parent = ContentContainer
+table.insert(Tabs.Main, ESPToggle)
+
+local FPSToggle = createToggle("FPSToggle", "TĂNG FPS: BẬT", "TĂNG FPS: TẮT", FPSToggleState, function(v)
+    FPSToggleState = v
+    if FPSToggleState then
+        ExecuteSmartFPSBooster()
+    end
+end)
+FPSToggle.Parent = ContentContainer
+table.insert(Tabs.Main, FPSToggle)
+
+-- TAB PHỤ
+local FlyToggle = createToggle("FlyToggle", "BAY (FLY): BẬT", "BAY (FLY): TẮT", FlyEnabled, function(v)
+    FlyEnabled = v
+    if FlyEnabled then
+        StartFly()
+    else
+        StopFly()
+    end
+end)
+FlyToggle.Parent = ContentContainer
+table.insert(Tabs.Sub, FlyToggle)
+
+local FlySpeedBtn
+FlySpeedBtn = createActionBtn("TỐC ĐỘ BAY: 50", function()
+    if FlySpeed == 50 then FlySpeed = 100
+    elseif FlySpeed == 100 then FlySpeed = 150
+    elseif FlySpeed == 150 then FlySpeed = 200
+    elseif FlySpeed == 200 then FlySpeed = 250
+    else FlySpeed = 50 end
+    FlySpeedBtn.Text = "TỐC ĐỘ BAY: " .. tostring(FlySpeed)
+    if FlyEnabled then StartFly() end
+end)
+FlySpeedBtn.Parent = ContentContainer
+table.insert(Tabs.Sub, FlySpeedBtn)
+
+local SpinToggle = createToggle("SpinToggle", "TỰ QUAY QUANH: BẬT", "TỰ QUAY QUANH: TẮT", SpinEnabled, function(v)
+    SpinEnabled = v
+end)
+SpinToggle.Parent = ContentContainer
+table.insert(Tabs.Sub, SpinToggle)
+
+local FOVPlus = createActionBtn("TĂNG BÁN KÍNH FOV (+10)", function()
     FOV_RADIUS = math.clamp(FOV_RADIUS + 10, 10, 300)
 end)
-local FOVMinus = createActionBtn("GIẢM BÁN KÍNH FOV (-10)", UDim2.new(0, 15, 0, 145), function()
+FOVPlus.Parent = ContentContainer
+table.insert(Tabs.Sub, FOVPlus)
+
+local FOVMinus = createActionBtn("GIẢM BÁN KÍNH FOV (-10)", function()
     FOV_RADIUS = math.clamp(FOV_RADIUS - 10, 10, 300)
 end)
+FOVMinus.Parent = ContentContainer
+table.insert(Tabs.Sub, FOVMinus)
 
 local FOVColorBtn
-FOVColorBtn = createActionBtn("MÀU VÒNG TRÒN: Cyan", UDim2.new(0, 15, 0, 180), function()
+FOVColorBtn = createActionBtn("MÀU VÒNG TRÒN: Cyan", function()
     currentFOVColorIndex = currentFOVColorIndex + 1
     if currentFOVColorIndex > #ColorPresets then currentFOVColorIndex = 1 end
     FOVColor = ColorPresets[currentFOVColorIndex].Color
     FOVColorBtn.Text = "MÀU VÒNG TRÒN: " .. ColorPresets[currentFOVColorIndex].Name
 end)
+FOVColorBtn.Parent = ContentContainer
+table.insert(Tabs.Sub, FOVColorBtn)
 
 local ESPColorBtn
-ESPColorBtn = createActionBtn("MÀU ESP KHỐI: Cyan", UDim2.new(0, 15, 0, 215), function()
+ESPColorBtn = createActionBtn("MÀU ESP KHỐI: Cyan", function()
     currentESPColorIndex = currentESPColorIndex + 1
     if currentESPColorIndex > #ColorPresets then currentESPColorIndex = 1 end
     ESPColor = ColorPresets[currentESPColorIndex].Color
+    if ESPEnabled then
+        for _, p in ipairs(Players:GetPlayers()) do applyESP(p) end
+    end
     ESPColorBtn.Text = "MÀU ESP KHỐI: " .. ColorPresets[currentESPColorIndex].Name
 end)
+ESPColorBtn.Parent = ContentContainer
+table.insert(Tabs.Sub, ESPColorBtn)
 
-local BackgroundToggle
-BackgroundToggle = createToggle("BackgroundToggle", "NỀN MENU: XANH MỜ", "NỀN MENU: MẶC ĐỊNH", UDim2.new(0, 15, 0, 250), BlueBackgroundEnabled, function(v)
+local BackgroundToggle = createToggle("BackgroundToggle", "NỀN MENU: XANH MỜ", "NỀN MENU: MẶC ĐỊNH", BlueBackgroundEnabled, function(v)
     BlueBackgroundEnabled = v
-    if BlueBackgroundEnabled then
-        MainMenu.BackgroundColor3 = BlueMenuColor
-        MainMenu.BackgroundTransparency = 0.4
-    else
-        MainMenu.BackgroundColor3 = DefaultMenuColor
-        MainMenu.BackgroundTransparency = 0
-    end
+    updateMenuBackground()
 end)
+BackgroundToggle.Parent = ContentContainer
+table.insert(Tabs.Sub, BackgroundToggle)
 
--- Tạo nút kích hoạt Tăng FPS cố định (Một khi bật là không thể tắt)
-local FPSToggle
-FPSToggle = createToggle("FPSToggle", "TĂNG FPS: ĐÃ KÍCH HOẠT", "TĂNG FPS: CHƯA BẬT", UDim2.new(0, 15, 0, 285), FPSToggleState, function(v)
-    if v then
-        FPSToggleState = true
-        FPSToggle.Text = "TĂNG FPS: ĐÃ KÍCH HOẠT"
-        FPSToggle.BackgroundColor3 = Color3.fromRGB(0, 170, 100)
-        -- Ngắt tương tác chuột/touch sau khi bật để không thể ấn tắt lại
-        FPSToggle.Active = false
-        ExecuteSmartFPSBooster()
-    end
-end)
+MainTabBtn.MouseButton1Click:Connect(function() displayTab("Main") end)
+SubTabBtn.MouseButton1Click:Connect(function() displayTab("Sub") end)
 
--- Sự kiện Đóng/Mở Menu chính khi nhấn nút phụ
+displayTab("Main")
+
 MenuButton.MouseButton1Click:Connect(function()
     MenuVisible = not MenuVisible
     MainMenu.Visible = MenuVisible
-    if MenuVisible then
-        MenuButton.Text = "ẨN"
-    else
-        MenuButton.Text = "HIỆN"
-    end
+    MenuButton.Text = MenuVisible and "ẨN" or "HIỆN"
 end)
 
--- XỬ LÝ DI CHUYỂN ĐỒNG BỘ (DRAGGABLE) GIỮA MENU VÀ NÚT BẤM TRÊN MOBILE TOUCH
+-- XỬ LÝ DI CHUYỂN ĐỒNG BỘ (DRAGGABLE) GIỮA MENU VÀ NÚT BẤM
 local dragging = false
 local dragInput, dragStart, startPos, startBtnPos
 
@@ -599,7 +844,6 @@ local function handleDrag(guiObject)
     end)
 end
 
--- Kích hoạt tính năng di chuyển đồng bộ trên cả Khung Menu và Nút Ẩn/Hiện
 handleDrag(MainMenu)
 handleDrag(MenuButton)
 
