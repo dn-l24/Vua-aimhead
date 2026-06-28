@@ -4,6 +4,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -11,19 +12,21 @@ local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 -- BIẾN CẤU HÌNH HỆ THỐNG (SETTINGS)
 local AimbotEnabled = true
 local ESPEnabled = true
-local BlueBackgroundEnabled = true -- Mặc định là nền xanh mờ (BẬT)
-local MenuVisible = true -- Trạng thái ẩn/hiện của bảng menu chính
+local GlassBlurEnabled = true -- Bật/Tắt hiệu ứng kính mờ
+local MenuVisible = true 
 local FOV_RADIUS = 35 
 local MAX_LINE_DISTANCE = 200 
 local TARGET_PART = "Head"
 local CurrentTarget = nil
-local CurrentLanguage = "VN" -- "VN" hoặc "EN"
+local CurrentLanguage = "VN" 
 
--- Cấu hình màu sắc mặc định
+-- Cấu hình màu sắc Glassmorphism (Phong cách Redz Hub)
 local FOVColor = Color3.fromRGB(173, 216, 230) 
 local ESPColor = Color3.fromRGB(0, 162, 255)  
-local DefaultMenuColor = Color3.fromRGB(30, 30, 35) -- Màu nền xám tối gốc
-local BlueMenuColor = Color3.fromRGB(10, 40, 75)   -- Màu nền xanh nước biển mờ
+local GlassColor = Color3.fromRGB(15, 18, 27)         -- Màu nền tối ánh xanh kính
+local SidebarColor = Color3.fromRGB(10, 12, 18)       -- Thanh bên tối hơn để phân tách
+local CardColor = Color3.fromRGB(25, 28, 38)          -- Khung chứa chức năng trong suốt nhẹ
+local AccentColor = Color3.fromRGB(0, 162, 255)        -- Màu xanh neon điểm nhấn
 
 -- DANH SÁCH MÀU SẮC ĐỂ THAY ĐỔI TRÊN MENU
 local ColorPresets = {
@@ -63,11 +66,8 @@ local function isVisible(targetCharacter, targetPart)
     return raycastResult == nil
 end
 
--- HÀM KIỂM TRA ĐỒNG ĐỘI (ẨN)
 local function isTeam(player)
-    if LocalPlayer.Team and player.Team then
-        return LocalPlayer.Team == player.Team
-    end
+    if LocalPlayer.Team and player.Team then return LocalPlayer.Team == player.Team end
     return false
 end
 
@@ -121,7 +121,6 @@ local function getClosestPlayerForTracer()
     return closestPlayer
 end
 
--- LOGIC XỬ LÝ HIGHLIGHT (ESP)
 local function applyESP(player)
     if player == LocalPlayer then return end
     local character = player.Character
@@ -152,7 +151,6 @@ end
 -- VÒNG LẶP CHÍNH (MAIN LOOP)
 local mainConnection = RunService.RenderStepped:Connect(function()
     local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    
     FOVCircle.Position = screenCenter
     FOVCircle.Radius = FOV_RADIUS
     FOVCircle.Color = FOVColor
@@ -166,7 +164,6 @@ local mainConnection = RunService.RenderStepped:Connect(function()
                 local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
                 local targetPos2D = Vector2.new(screenPos.X, screenPos.Y)
                 local distanceToCenter = (targetPos2D - screenCenter).Magnitude
-
                 if not onScreen or distanceToCenter > FOV_RADIUS or not isVisible(CurrentTarget.Character, targetPart) then
                     CurrentTarget = nil
                 end
@@ -177,13 +174,9 @@ local mainConnection = RunService.RenderStepped:Connect(function()
             CurrentTarget = nil
         end
 
-        if not CurrentTarget then
-            CurrentTarget = getClosestPlayerToCenter()
-        end
-
+        if not CurrentTarget then CurrentTarget = getClosestPlayerToCenter() end
         if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild(TARGET_PART) then
-            local targetPos = CurrentTarget.Character[TARGET_PART].Position
-            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, CurrentTarget.Character[TARGET_PART].Position)
         end
     else
         CurrentTarget = nil
@@ -192,38 +185,26 @@ local mainConnection = RunService.RenderStepped:Connect(function()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
             local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Health > 0 and not isTeam(player) then
-                applyESP(player)
-            else
-                removeESP(player)
-            end
+            if humanoid and humanoid.Health > 0 and not isTeam(player) then applyESP(player) else removeESP(player) end
         end
     end
 
     if ESPEnabled then
         local targetPlayer = getClosestPlayerForTracer()
         if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild(TARGET_PART) then
-            local targetPart = targetPlayer.Character[TARGET_PART]
-            local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+            local screenPos, onScreen = Camera:WorldToViewportPoint(targetPlayer.Character[TARGET_PART].Position)
             if onScreen then
                 TracerLine.From = screenCenter
                 TracerLine.To = Vector2.new(screenPos.X, screenPos.Y)
                 TracerLine.Visible = true
-            else
-                TracerLine.Visible = false
-            end
-        else
-            TracerLine.Visible = false
-        end
+            else TracerLine.Visible = false end
+        else TracerLine.Visible = false end
     else
         TracerLine.Visible = false
-        for _, player in ipairs(Players:GetPlayers()) do
-            removeESP(player)
-        end
+        for _, player in ipairs(Players:GetPlayers()) do removeESP(player) end
     end
 end)
 
--- QUẢN LÝ EVENT PLAYER
 for _, player in ipairs(Players:GetPlayers()) do
     player.CharacterAdded:Connect(function() task.wait(0.5) if ESPEnabled then applyESP(player) end end)
 end
@@ -232,168 +213,290 @@ Players.PlayerAdded:Connect(function(player)
 end)
 Players.PlayerRemoving:Connect(function(player) removeESP(player) end)
 
--- TẠO GIAO DIỆN HỆ THỐNG MENU (GUI)
+
+-- ==================== QUẢN LÝ HIỆU ỨNG KÍNH MỜ (BLUR EFFECT) ====================
+local MenuBlur = Lighting:FindFirstChild("MenuGlassBlur")
+if not MenuBlur then
+    MenuBlur = Instance.new("BlurEffect")
+    MenuBlur.Name = "MenuGlassBlur"
+    MenuBlur.Size = 0 -- Mặc định bằng 0, chỉ tăng lên khi mở menu
+    MenuBlur.Parent = Lighting
+end
+
+local function updateBlurState()
+    if MenuVisible and GlassBlurEnabled then
+        MenuBlur.Size = 18 -- Độ mờ của kính (Càng cao càng mờ nền sau)
+    else
+        MenuBlur.Size = 0
+    end
+end
+
+
+-- ==================== XÂY DỰNG GIAO DIỆN GLASSMORPHISM ====================
 if PlayerGui:FindFirstChild("MobileCheatMenu") then PlayerGui.MobileCheatMenu:Destroy() end
 
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "MobileCheatMenu"
 ScreenGui.Parent = PlayerGui
 ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.IgnoreGuiInset = true -- Đảm bảo hiệu ứng blur full màn hình không bị lệch dòng trên
 
--- Khung Menu Chính (KÉO DÀI THÀNH 350)
+-- Khung Menu Kính Mờ (Ngang 420 x Cao 260)
 local MainMenu = Instance.new("Frame")
 MainMenu.Name = "MainMenu"
 MainMenu.Parent = ScreenGui
 MainMenu.BorderSizePixel = 0
-MainMenu.Position = UDim2.new(0.3, 0, 0.25, 0)
-MainMenu.Size = UDim2.new(0, 230, 0, 350)
+MainMenu.Position = UDim2.new(0.3, 0, 0.3, 0)
+MainMenu.Size = UDim2.new(0, 420, 0, 260)
+MainMenu.BackgroundColor3 = GlassColor
+MainMenu.BackgroundTransparency = 0.25 -- Trong suốt vừa phải để thấy nền mờ phía sau
 MainMenu.Active = true
 MainMenu.ZIndex = 2
-
--- Thiết lập mặc định nền xanh mờ
-if BlueBackgroundEnabled then
-    MainMenu.BackgroundColor3 = BlueMenuColor
-    MainMenu.BackgroundTransparency = 0.4
-else
-    MainMenu.BackgroundColor3 = DefaultMenuColor
-    MainMenu.BackgroundTransparency = 0
-end
 
 local MenuCorner = Instance.new("UICorner")
 MenuCorner.CornerRadius = UDim.new(0, 10)
 MenuCorner.Parent = MainMenu
 
+-- Tạo Viền Sáng Tinh Tế Cho Menu Kính (UIStroke)
+local MenuStroke = Instance.new("UIStroke")
+MenuStroke.Thickness = 1
+MenuStroke.Color = Color3.fromRGB(255, 255, 255)
+MenuStroke.Transparency = 0.85 -- Viền phản quang cực nhẹ sang chảnh
+MenuStroke.Parent = MainMenu
+
+-- Khung Tiêu Đề Trên (TopBar trong suốt)
+local TopBar = Instance.new("Frame")
+TopBar.Name = "TopBar"
+TopBar.Parent = MainMenu
+TopBar.Size = UDim2.new(1, 0, 0, 35)
+TopBar.BackgroundColor3 = SidebarColor
+TopBar.BackgroundTransparency = 0.4
+TopBar.BorderSizePixel = 0
+TopBar.ZIndex = 2
+
+local TopCorner = Instance.new("UICorner")
+TopCorner.CornerRadius = UDim.new(0, 10)
+TopCorner.Parent = TopBar
+
 local Title = Instance.new("TextLabel")
-Title.Parent = MainMenu
-Title.Size = UDim2.new(1, 0, 0, 35)
+Title.Parent = TopBar
+Title.Size = UDim2.new(0, 200, 1, 0)
+Title.Position = UDim2.new(0, 12, 0, 0)
 Title.BackgroundTransparency = 1
 Title.Font = Enum.Font.SourceSansBold
-Title.Text = "Aimbot l Vua"
+Title.Text = "redz Hub : Kính Mờ Edition"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.TextSize = 16
+Title.TextSize = 14
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.ZIndex = 3
 
--- NÚT ĐÓNG / MỞ MENU (Có hình nền)
+-- NÚT ẨN/HIỆN MINI TRÒN
 local MenuButton = Instance.new("TextButton")
 MenuButton.Name = "MenuVisibilityButton"
 MenuButton.Parent = ScreenGui
-MenuButton.Size = UDim2.new(0, 50, 0, 50)
-MenuButton.Position = UDim2.new(MainMenu.Position.X.Scale, MainMenu.Position.X.Offset - 55, MainMenu.Position.Y.Scale, MainMenu.Position.Y.Offset)
-MenuButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-MenuButton.BackgroundTransparency = 1 
+MenuButton.Size = UDim2.new(0, 45, 0, 45)
+MenuButton.Position = UDim2.new(0, 25, 0, 25)
+MenuButton.BackgroundColor3 = GlassColor
+MenuButton.BackgroundTransparency = 0.2
 MenuButton.Font = Enum.Font.SourceSansBold
 MenuButton.Text = "ẨN"
 MenuButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-MenuButton.TextSize = 14
-MenuButton.TextStrokeTransparency = 0.3 
-MenuButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-MenuButton.ZIndex = 4
+MenuButton.TextSize = 13
+MenuButton.ZIndex = 5
 
 local ButtonCorner = Instance.new("UICorner")
-ButtonCorner.CornerRadius = UDim.new(0, 8)
+ButtonCorner.CornerRadius = UDim.new(0, 50)
 ButtonCorner.Parent = MenuButton
 
--- TẠO BACKGROUND HÌNH ẢNH CHO NÚT BẤM
-local ButtonImage = Instance.new("ImageLabel")
-ButtonImage.Name = "ButtonBackground"
-ButtonImage.Parent = MenuButton
-ButtonImage.Size = UDim2.new(1, 0, 1, 0)
-ButtonImage.BackgroundTransparency = 1
-ButtonImage.Image = "rbxassetid://YOUR_IMAGE_ID_HERE" 
-ButtonImage.ScaleType = Enum.ScaleType.Crop
-ButtonImage.ZIndex = 3
+local ButtonStroke = Instance.new("UIStroke")
+ButtonStroke.Color = AccentColor
+ButtonStroke.Thickness = 1.5
+ButtonStroke.Parent = MenuButton
 
-local ImageCorner = Instance.new("UICorner")
-ImageCorner.CornerRadius = UDim.new(0, 8)
-ImageCorner.Parent = ButtonImage
+-- THANH SIDEBAR BÊN TRÁI 
+local Sidebar = Instance.new("Frame")
+Sidebar.Name = "Sidebar"
+Sidebar.Parent = MainMenu
+Sidebar.Position = UDim2.new(0, 0, 0, 35)
+Sidebar.Size = UDim2.new(0, 120, 1, -35)
+Sidebar.BackgroundColor3 = SidebarColor
+Sidebar.BackgroundTransparency = 0.3
+Sidebar.BorderSizePixel = 0
+Sidebar.ZIndex = 2
 
--- KHỞI TẠO KHUNG CUỘN (SCROLLING FRAME)
-local Container = Instance.new("ScrollingFrame")
-Container.Name = "ScrollContainer"
-Container.Parent = MainMenu
-Container.BackgroundTransparency = 1
-Container.BorderSizePixel = 0
-Container.Position = UDim2.new(0, 0, 0, 35)
-Container.Size = UDim2.new(1, 0, 1, -35)
-Container.CanvasSize = UDim2.new(0, 0, 0, 430) -- Kích thước chứa tổng thể các nút cuộn
-Container.ScrollBarThickness = 3
-Container.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
-Container.ZIndex = 3
+local SideCorner = Instance.new("UICorner")
+SideCorner.CornerRadius = UDim.new(0, 10)
+SideCorner.Parent = Sidebar
 
--- HỆ THỐNG ĐA NGÔN NGỮ & PHÂN LOẠI
-local UI_Elements = {} 
+-- KHUNG CHỨA NỘI DUNG BÊN PHẢI
+local MainContent = Instance.new("Frame")
+MainContent.Name = "MainContent"
+MainContent.Parent = MainMenu
+MainContent.Position = UDim2.new(0, 125, 0, 40)
+MainContent.Size = UDim2.new(1, -130, 1, -45)
+MainContent.BackgroundTransparency = 1
+MainContent.ZIndex = 2
 
-local function createGroupHeader(texts, pos)
-    local header = Instance.new("TextLabel")
-    header.Parent = Container
-    header.Size = UDim2.new(0, 200, 0, 20)
-    header.Position = pos
-    header.BackgroundTransparency = 1
-    header.Font = Enum.Font.SourceSansBold
-    header.TextSize = 13
-    header.TextColor3 = Color3.fromRGB(0, 215, 255)
-    header.TextXAlignment = Enum.TextXAlignment.Left
-    header.ZIndex = 3
+local UI_Elements = {}
+
+-- Hàm tạo các trang nội dung (Pages)
+local Pages = {}
+local function createPage(name)
+    local page = Instance.new("ScrollingFrame")
+    page.Name = name .. "Page"
+    page.Parent = MainContent
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.BackgroundTransparency = 1
+    page.BorderSizePixel = 0
+    page.CanvasSize = UDim2.new(0, 0, 0, 320)
+    page.ScrollBarThickness = 2
+    page.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
+    page.ScrollBarImageTransparency = 0.7
+    page.Visible = false
+    page.ZIndex = 3
     
-    local function updateView()
-        header.Text = "--- " .. ((CurrentLanguage == "VN") and texts.VN or texts.EN) .. " ---"
-    end
-    updateView()
-    table.insert(UI_Elements, updateView)
-    return header
+    local layout = Instance.new("UIListLayout")
+    layout.Parent = page
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 6)
+    
+    Pages[name] = page
+    return page
 end
 
-local function createToggle(name, texts, pos, defaultState, callback)
+local MainContentPage = createPage("Main")
+local SubContentPage = createPage("Sub")
+MainContentPage.Visible = true 
+
+-- Hàm tạo nút chuyển Tab ở Sidebar
+local CurrentTab = "Main"
+local function createTabBtn(name, textTable, order)
     local btn = Instance.new("TextButton")
-    btn.Name = name
-    btn.Parent = Container
-    btn.Size = UDim2.new(0, 200, 0, 30)
-    btn.Position = pos
+    btn.Parent = Sidebar
+    btn.Size = UDim2.new(1, -10, 0, 32)
+    btn.Position = UDim2.new(0, 5, 0, 10 + (order * 36))
+    btn.BorderSizePixel = 0
     btn.Font = Enum.Font.SourceSansBold
-    btn.TextSize = 14
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 13
     btn.ZIndex = 3
     
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.Parent = btn
+    
+    local function updateTabStyle()
+        btn.Text = (CurrentLanguage == "VN") and textTable.VN or textTable.EN
+        if CurrentTab == name then
+            btn.BackgroundColor3 = AccentColor
+            btn.BackgroundTransparency = 0.2
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        else
+            btn.BackgroundColor3 = CardColor
+            btn.BackgroundTransparency = 0.6
+            btn.TextColor3 = Color3.fromRGB(200, 200, 205)
+        end
+    end
+    
+    btn.MouseButton1Click:Connect(function()
+        CurrentTab = name
+        for _, page in pairs(Pages) do page.Visible = false end
+        Pages[name].Visible = true
+        for _, func in ipairs(UI_Elements) do func() end
+    end)
+    
+    table.insert(UI_Elements, updateTabStyle)
+    updateTabStyle()
+end
+
+createTabBtn("Main", {VN = "⚔️ Chức Năng Chính", EN = "⚔️ Main Features"}, 0)
+createTabBtn("Sub", {VN = "⚙️ Chức Năng Phụ", EN = "⚙️ Sub Features"}, 1)
+
+-- THIẾT KẾ TOGGLE GẠT TRÒN HIỆN ĐẠI
+local function createModernToggle(parentPage, labelTexts, defaultState, callback)
+    local container = Instance.new("Frame")
+    container.Parent = parentPage
+    container.Size = UDim2.new(1, -5, 0, 35)
+    container.BackgroundColor3 = CardColor
+    container.BackgroundTransparency = 0.4 -- Trong suốt nhẹ cho hợp nền kính
+    container.BorderSizePixel = 0
+    container.ZIndex = 3
+    
+    local uicorner = Instance.new("UICorner")
+    uicorner.CornerRadius = UDim.new(0, 6)
+    uicorner.Parent = container
+    
+    local label = Instance.new("TextLabel")
+    label.Parent = container
+    label.Size = UDim2.new(0, 160, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.SourceSans
+    label.TextSize = 13
+    label.TextColor3 = Color3.fromRGB(240, 240, 240)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.ZIndex = 4
+
+    local toggleTrack = Instance.new("TextButton")
+    toggleTrack.Parent = container
+    toggleTrack.Size = UDim2.new(0, 36, 0, 18)
+    toggleTrack.Position = UDim2.new(1, -46, 0, 8)
+    toggleTrack.Text = ""
+    toggleTrack.ZIndex = 4
+    
+    local trackCorner = Instance.new("UICorner")
+    trackCorner.CornerRadius = UDim.new(0, 9)
+    trackCorner.Parent = toggleTrack
+    
+    local toggleCircle = Instance.new("Frame")
+    toggleCircle.Parent = toggleTrack
+    toggleCircle.Size = UDim2.new(0, 14, 0, 14)
+    toggleCircle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    toggleCircle.BorderSizePixel = 0
+    toggleCircle.ZIndex = 5
+    
+    local circleCorner = Instance.new("UICorner")
+    circleCorner.CornerRadius = UDim.new(0, 7)
+    circleCorner.Parent = toggleCircle
 
     local state = defaultState
     local function updateView()
+        label.Text = (CurrentLanguage == "VN") and labelTexts.VN or labelTexts.EN
         if state then
-            btn.Text = (CurrentLanguage == "VN") and texts.VN_ON or texts.EN_ON
-            btn.BackgroundColor3 = Color3.fromRGB(0, 170, 100)
+            toggleTrack.BackgroundColor3 = AccentColor
+            toggleTrack.BackgroundTransparency = 0
+            toggleCircle.Position = UDim2.new(1, -16, 0, 2)
         else
-            btn.Text = (CurrentLanguage == "VN") and texts.VN_OFF or texts.EN_OFF
-            btn.BackgroundColor3 = Color3.fromRGB(170, 50, 50)
+            toggleTrack.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            toggleTrack.BackgroundTransparency = 0.8
+            toggleCircle.Position = UDim2.new(0, 2, 0, 2)
         end
     end
-    updateView()
 
-    btn.MouseButton1Click:Connect(function()
+    toggleTrack.MouseButton1Click:Connect(function()
         state = not state
         updateView()
         callback(state)
     end)
     
     table.insert(UI_Elements, updateView)
-    return btn
+    updateView()
 end
 
-local function createActionBtn(texts, pos, callback)
+-- THIẾT KẾ NÚT ACTION BUTTON TRONG SUỐT NHẸ
+local function createActionBtn(parentPage, texts, callback)
     local btn = Instance.new("TextButton")
-    btn.Parent = Container
-    btn.Size = UDim2.new(0, 200, 0, 25)
-    btn.Position = pos
-    btn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
-    btn.Font = Enum.Font.SourceSansBold
-    btn.TextColor3 = Color3.fromRGB(220, 220, 220)
+    btn.Parent = parentPage
+    btn.Size = UDim2.new(1, -5, 0, 30)
+    btn.BackgroundColor3 = CardColor
+    btn.BackgroundTransparency = 0.4
+    btn.Font = Enum.Font.SourceSans
+    btn.TextColor3 = Color3.fromRGB(240, 240, 240)
     btn.TextSize = 13
     btn.ZIndex = 3
     
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.Parent = btn
     
     local function updateView()
         if type(texts) == "table" then
@@ -402,135 +505,99 @@ local function createActionBtn(texts, pos, callback)
             btn.Text = texts()
         end
     end
-    updateView()
     
-    btn.MouseButton1Click:Connect(function()
-        callback(btn)
-    end)
-    
+    btn.MouseButton1Click:Connect(function() callback(btn) end)
     table.insert(UI_Elements, updateView)
-    return btn
+    updateView()
 end
 
--- ==================== NHÓM 1: CHỨC NĂNG CHÍNH ====================
-createGroupHeader({VN = "CHỨC NĂNG CHÍNH", EN = "MAIN FEATURES"}, UDim2.new(0, 15, 0, 5))
 
-local AimToggle = createToggle("AimToggle", {VN_ON = "AIMBOT: BẬT", VN_OFF = "AIMBOT: TẮT", EN_ON = "AIMBOT: ON", EN_OFF = "AIMBOT: OFF"}, UDim2.new(0, 15, 0, 30), AimbotEnabled, function(v) AimbotEnabled = v end)
-local ESPToggle = createToggle("ESPToggle", {VN_ON = "ESP XUYÊN TƯỜNG: BẬT", VN_OFF = "ESP XUYÊN TƯỜNG: TẮT", EN_ON = "ESP WALLHACK: ON", EN_OFF = "ESP WALLHACK: OFF"}, UDim2.new(0, 15, 0, 65), ESPEnabled, function(v) ESPEnabled = v end)
+-- ==================== ĐƯA CÁC CHỨC NĂNG VÀO TỪNG TRANG (TAB) ====================
 
-local FOVPlus = createActionBtn({VN = "TĂNG BÁN KÍNH FOV (+10)", EN = "INCREASE FOV RADIUS (+10)"}, UDim2.new(0, 15, 0, 105), function()
+-- TAB CHÍNH (MAIN PAGE)
+createModernToggle(MainContentPage, {VN = "Aimbot Tự Động", EN = "Aimbot System"}, AimbotEnabled, function(v) AimbotEnabled = v end)
+createModernToggle(MainContentPage, {VN = "ESP Xuyên Tường", EN = "ESP Wallhack"}, ESPEnabled, function(v) ESPEnabled = v end)
+
+createActionBtn(MainContentPage, {VN = "🎯 Tăng Bán Kính FOV (+10)", EN = "🎯 Increase FOV (+10)"}, function()
     FOV_RADIUS = math.clamp(FOV_RADIUS + 10, 10, 300)
 end)
-local FOVMinus = createActionBtn({VN = "GIẢM BÁN KÍNH FOV (-10)", EN = "DECREASE FOV RADIUS (-10)"}, UDim2.new(0, 15, 0, 135), function()
+createActionBtn(MainContentPage, {VN = "🎯 Giảm Bán Kính FOV (-10)", EN = "🎯 Decrease FOV (-10)"}, function()
     FOV_RADIUS = math.clamp(FOV_RADIUS - 10, 10, 300)
 end)
 
 local FOVColorBtn
-FOVColorBtn = createActionBtn(function()
+FOVColorBtn = createActionBtn(MainContentPage, function()
     local name = ColorPresets[currentFOVColorIndex].Name
-    return (CurrentLanguage == "VN") and ("MÀU VÒNG TRÒN: " .. name) or ("FOV CIRCLE COLOR: " .. name)
-end, UDim2.new(0, 15, 0, 170), function()
+    return (CurrentLanguage == "VN") and ("🎨 Đổi Màu FOV: " .. name) or ("🎨 FOV Color: " .. name)
+end, function()
     currentFOVColorIndex = currentFOVColorIndex + 1
     if currentFOVColorIndex > #ColorPresets then currentFOVColorIndex = 1 end
     FOVColor = ColorPresets[currentFOVColorIndex].Color
-    FOVColorBtn.Text = (CurrentLanguage == "VN") and ("MÀU VÒNG TRÒN: " .. ColorPresets[currentFOVColorIndex].Name) or ("FOV CIRCLE COLOR: " .. ColorPresets[currentFOVColorIndex].Name)
+    for _, func in ipairs(UI_Elements) do func() end
 end)
 
 local ESPColorBtn
-ESPColorBtn = createActionBtn(function()
+ESPColorBtn = createActionBtn(MainContentPage, function()
     local name = ColorPresets[currentESPColorIndex].Name
-    return (CurrentLanguage == "VN") and ("MÀU ESP KHỐI: " .. name) or ("ESP BOX COLOR: " .. name)
-end, UDim2.new(0, 15, 0, 205), function()
+    return (CurrentLanguage == "VN") and ("🎨 Đổi Màu ESP: " .. name) or ("🎨 ESP Color: " .. name)
+end, function()
     currentESPColorIndex = currentESPColorIndex + 1
     if currentESPColorIndex > #ColorPresets then currentESPColorIndex = 1 end
     ESPColor = ColorPresets[currentESPColorIndex].Color
-    ESPColorBtn.Text = (CurrentLanguage == "VN") and ("MÀU ESP KHỐI: " .. ColorPresets[currentESPColorIndex].Name) or ("ESP BOX COLOR: " .. ColorPresets[currentESPColorIndex].Name)
+    for _, func in ipairs(UI_Elements) do func() end
 end)
 
-
--- ==================== NHÓM 2: CHỨC NĂNG PHỤ ====================
-createGroupHeader({VN = "CHỨC NĂNG PHỤ", EN = "SUB FEATURES"}, UDim2.new(0, 15, 0, 245))
-
-local BackgroundToggle
-BackgroundToggle = createToggle("BackgroundToggle", {VN_ON = "NỀN MENU: XANH MỜ", VN_OFF = "NỀN MENU: MẶC ĐỊNH", EN_ON = "BACKGROUND: BLUR BLUE", EN_OFF = "BACKGROUND: DEFAULT"}, UDim2.new(0, 15, 0, 270), BlueBackgroundEnabled, function(v)
-    BlueBackgroundEnabled = v
-    if BlueBackgroundEnabled then
-        MainMenu.BackgroundColor3 = BlueMenuColor
-        MainMenu.BackgroundTransparency = 0.4
-    else
-        MainMenu.BackgroundColor3 = DefaultMenuColor
-        MainMenu.BackgroundTransparency = 0
-    end
+-- TAB PHỤ (SUB PAGE)
+createModernToggle(SubContentPage, {VN = "Kính Mờ Phía Sau (Glass Blur)", EN = "Glass Blur Effect"}, GlassBlurEnabled, function(v)
+    GlassBlurEnabled = v
+    updateBlurState()
 end)
 
-local LangBtn
-LangBtn = createActionBtn(function()
-    return (CurrentLanguage == "VN") and "NGÔN NGỮ: TIẾNG VIỆT" or "LANGUAGE: ENGLISH"
-end, UDim2.new(0, 15, 0, 310), function()
+createActionBtn(SubContentPage, function()
+    return (CurrentLanguage == "VN") and "🌐 Ngôn Ngữ: Tiếng Việt" or "🌐 Language: English"
+end, function()
     CurrentLanguage = (CurrentLanguage == "VN") and "EN" or "VN"
-    
-    if MenuVisible then
-        MenuButton.Text = (CurrentLanguage == "VN") and "ẨN" or "HIDE"
-    else
-        MenuButton.Text = (CurrentLanguage == "VN") and "HIỆN" or "SHOW"
-    end
-    
-    for _, updateFunc in ipairs(UI_Elements) do
-        updateFunc()
-    end
+    MenuButton.Text = MenuVisible and ((CurrentLanguage == "VN") and "ẨN" or "HIDE") or ((CurrentLanguage == "VN") and "HIỆN" or "SHOW")
+    for _, func in ipairs(UI_Elements) do func() end
 end)
 
 
--- Sự kiện Đóng/Mở Menu chính khi nhấn nút phụ
+-- ==================== XỬ LÝ ĐÓNG MỞ VÀ DI CHUYỂN MENU (DRAGGABLE) ====================
+updateBlurState() -- Chạy kiểm tra blur lần đầu tiên
+
 MenuButton.MouseButton1Click:Connect(function()
     MenuVisible = not MenuVisible
     MainMenu.Visible = MenuVisible
-    if MenuVisible then
-        MenuButton.Text = (CurrentLanguage == "VN") and "ẨN" or "HIDE"
-    else
-        MenuButton.Text = (CurrentLanguage == "VN") and "HIỆN" or "SHOW"
-    end
+    updateBlurState() -- Đồng bộ bật/tắt blur theo menu
+    MenuButton.Text = MenuVisible and ((CurrentLanguage == "VN") and "ẨN" or "HIDE") or ((CurrentLanguage == "VN") and "HIỆN" or "SHOW")
 end)
 
--- XỬ LÝ DI CHUYỂN ĐỒNG BỘ (DRAGGABLE) GIỮA MENU VÀ NÚT BẤM TRÊN MOBILE TOUCH
 local dragging = false
-local dragInput, dragStart, startPos, startBtnPos
+local dragInput, dragStart, startPos
 
 local function updateMenuPos(input)
     local delta = input.Position - dragStart
     MainMenu.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    MenuButton.Position = UDim2.new(startBtnPos.X.Scale, startBtnPos.X.Offset + delta.X, startBtnPos.Y.Scale, startBtnPos.Y.Offset + delta.Y)
 end
 
-local function handleDrag(guiObject)
-    guiObject.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            dragStart = input.Position
-            startPos = MainMenu.Position
-            startBtnPos = MenuButton.Position
-            
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then 
-                    dragging = false 
-                end
-            end)
-        end
-    end)
+TopBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainMenu.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
+end)
 
-    guiObject.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
-            dragInput = input
-        end
-    end)
-end
-
--- Kích hoạt tính năng di chuyển đồng bộ
-handleDrag(MainMenu)
-handleDrag(MenuButton)
+TopBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
 
 UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        updateMenuPos(input)
-    end
+    if input == dragInput and dragging then updateMenuPos(input) end
 end)
