@@ -217,13 +217,13 @@ ScreenGui.Parent = PlayerGui
 ScreenGui.ResetOnSpawn = false
 ScreenGui.IgnoreGuiInset = true 
 
--- KHUNG BAO CHỨA CHÍNH (Đảm bảo Menu và Nút Ẩn/Hiện luôn đi liền nhau khi di chuyển)
+-- KHUNG BAO CHỨA CHÍNH (Đảm bảo Menu và Nút luôn liên kết vị trí)
 local MasterFrame = Instance.new("Frame")
 MasterFrame.Name = "MasterFrame"
 MasterFrame.Parent = ScreenGui
 MasterFrame.BackgroundTransparency = 1
 MasterFrame.Position = UDim2.new(0.3, 0, 0.3, 0)
-MasterFrame.Size = UDim2.new(0, 420, 0, 260) -- Kích thước tổng thể
+MasterFrame.Size = UDim2.new(0, 420, 0, 260) 
 
 -- Khung Menu Nội Dung Chính
 local MainMenu = Instance.new("Frame")
@@ -247,7 +247,7 @@ MenuStroke.Color = Color3.fromRGB(255, 255, 255)
 MenuStroke.Transparency = 0.85 
 MenuStroke.Parent = MainMenu
 
--- Khung Tiêu Đề Trên (TopBar) - SỬA TÊN THÀNH VUA AIMHEAD
+-- Khung Tiêu Đề Trên (TopBar) - 👑 VUA AIMHEAD
 local TopBar = Instance.new("Frame")
 TopBar.Name = "TopBar"
 TopBar.Parent = MainMenu
@@ -273,12 +273,11 @@ Title.TextSize = 15
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.ZIndex = 3
 
--- NÚT ẨN/HIỆN ĐỒNG BỘ (Dính chặt vào cạnh trái Menu chính)
+-- NÚT ẨN/HIỆN ĐỒNG BỘ (Cạnh trái Menu)
 local MenuButton = Instance.new("TextButton")
 MenuButton.Name = "MenuVisibilityButton"
 MenuButton.Parent = MasterFrame
 MenuButton.Size = UDim2.new(0, 45, 0, 45)
--- Đặt vị trí bên trái và cách lề Menu 10 pixel
 MenuButton.Position = UDim2.new(0, -55, 0, 0) 
 MenuButton.BackgroundColor3 = GlassColor
 MenuButton.BackgroundTransparency = 0.15
@@ -529,25 +528,23 @@ end, function()
     for _, func in ipairs(UI_Elements) do func() end
 end)
 
--- TAB HỆ THỐNG - THÊM TÍNH NĂNG BOOST FPS XÓA 40% HIỆU ỨNG
+-- TAB HỆ THỐNG
 createActionBtn(SubContentPage, {VN = "🧹 Siêu Tối Ưu: FPS Boost (Xóa 40% Hiệu Ứng)", EN = "🧹 FPS Boost (Clear 40% Effects)"}, function()
-    -- Cài đặt cấu hình đồ họa xuống mức thấp nhất
     UserSettings():GetService("GameSettings").GraphicsQualityLevel = 1
     settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
     
-    -- Vòng lặp quét xóa sạch 40% hiệu ứng rác trong không gian game
     local clearedCount = 0
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or obj:IsA("Sparkles") or obj:IsA("Fire") then
             clearedCount = clearedCount + 1
-            if clearedCount % 10 <= 4 then -- Xóa chuẩn xác tỷ lệ khoảng 40% hiệu ứng hạt nhằm tránh lỗi hiển thị skill
+            if clearedCount % 10 <= 4 then 
                 obj:Destroy()
             end
         elseif obj:IsA("PostEffect") or obj:IsA("BloomEffect") or obj:IsA("DepthOfFieldEffect") then
-            obj:Destroy() -- Xóa các bộ lọc xử lý ánh sáng nặng
+            obj:Destroy() 
         end
     end
-    print("FPS Boost Activated! Cleared heavy game effects.")
+    print("FPS Boost Activated!")
 end)
 
 createActionBtn(SubContentPage, function()
@@ -559,43 +556,67 @@ end, function()
 end)
 
 
--- ==================== XỬ LÝ ĐÓNG MỞ VÀ DI CHUYỂN HỢP NHẤT ====================
--- Đồng bộ nút ẩn hiện ban đầu
-MenuButton.Text = MenuVisible and ((CurrentLanguage == "VN") and "ẨN" or "HIDE") or ((CurrentLanguage == "VN") and "HIỆN" or "SHOW")
-
-MenuButton.MouseButton1Click:Connect(function()
-    MenuVisible = not MenuVisible
-    MainMenu.Visible = MenuVisible
-    MenuButton.Text = MenuVisible and ((CurrentLanguage == "VN") and "ẨN" or "HIDE") or ((CurrentLanguage == "VN") and "HIỆN" or "SHOW")
-end)
-
+-- ==================== HỆ THỐNG KÉO THẢ (DRAG) ĐA ĐIỂM THÔNG MINH ====================
 local dragging = false
 local dragInput, dragStart, startPos
 
+-- Đồng bộ chữ hiển thị nút ban đầu
+MenuButton.Text = MenuVisible and ((CurrentLanguage == "VN") and "ẨN" or "HIDE") or ((CurrentLanguage == "VN") and "HIỆN" or "SHOW")
+
+-- Biến lưu tọa độ click chuột/touch để phân biệt giữa "Kéo nút" và "Click nút"
+local startClickTime = 0
+local startClickPos = Vector3.new()
+
 local function updateMenuPos(input)
     local delta = input.Position - dragStart
-    -- Di chuyển toàn bộ MasterFrame chứa cả Menu và Nút đi cùng nhau
     MasterFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 end
 
-TopBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = MasterFrame.Position
-        
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then dragging = false end
-        end)
-    end
-end)
+-- Hàm kích hoạt sự kiện Drag (Bấm vào vật nào cũng di chuyển được MasterFrame)
+local function setupDragEvent(instance)
+    instance.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = MasterFrame.Position
+            
+            if instance == MenuButton then
+                startClickTime = os.clock()
+                startClickPos = input.Position
+            end
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then 
+                    dragging = false 
+                end
+            end)
+        end
+    end)
 
-TopBar.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
-        dragInput = input
-    end
-end)
+    instance.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
+end
+
+-- Áp dụng drag cho cả thanh TopBar (khi mở menu) và chính chiếc MenuButton (khi đóng/mở menu)
+setupDragEvent(TopBar)
+setupDragEvent(MenuButton)
 
 UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then updateMenuPos(input) end
+    if input == dragInput and dragging then 
+        updateMenuPos(input) 
+    end
+end)
+
+-- XỬ LÝ CLICK NÚT ẨN HIỆN (Có lọc bộ kéo thả để tránh click nhầm khi đang di chuyển)
+MenuButton.MouseButton1Up:Connect(function()
+    local travelDistance = dragStart and (UserInputService:GetMouseLocation() - Vector2.new(dragStart.X, dragStart.Y)).Magnitude or 0
+    -- Nếu thời gian bấm ngắn và khoảng cách di chuyển nhỏ hơn 5 pixel thì coi như là CLICK
+    if (os.clock() - startClickTime) < 0.3 and travelDistance < 5 then
+        MenuVisible = not MenuVisible
+        MainMenu.Visible = MenuVisible
+        MenuButton.Text = MenuVisible and ((CurrentLanguage == "VN") and "ẨN" or "HIDE") or ((CurrentLanguage == "VN") and "HIỆN" or "SHOW")
+    end
 end)
