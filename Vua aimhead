@@ -217,7 +217,7 @@ ScreenGui.Parent = PlayerGui
 ScreenGui.ResetOnSpawn = false
 ScreenGui.IgnoreGuiInset = true 
 
--- KHUNG BAO CHỨA CHÍNH (Đảm bảo Menu và Nút luôn liên kết vị trí)
+-- KHUNG BAO CHỨA CHÍNH MENU
 local MasterFrame = Instance.new("Frame")
 MasterFrame.Name = "MasterFrame"
 MasterFrame.Parent = ScreenGui
@@ -247,7 +247,7 @@ MenuStroke.Color = Color3.fromRGB(255, 255, 255)
 MenuStroke.Transparency = 0.85 
 MenuStroke.Parent = MainMenu
 
--- Khung Tiêu Đề Trên (TopBar) - 👑 VUA AIMHEAD
+-- Khung Tiêu Đề Trên (TopBar)
 local TopBar = Instance.new("Frame")
 TopBar.Name = "TopBar"
 TopBar.Parent = MainMenu
@@ -273,12 +273,13 @@ Title.TextSize = 15
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.ZIndex = 3
 
--- NÚT ẨN/HIỆN ĐỒNG BỘ (Cạnh trái Menu)
+-- NÚT ẨN/HIỆN ĐỒNG BỘ (ĐÃ FIX: Đặt thẳng vào ScreenGui để không bị lỗi đè vị trí khi Drag)
 local MenuButton = Instance.new("TextButton")
 MenuButton.Name = "MenuVisibilityButton"
-MenuButton.Parent = MasterFrame
+MenuButton.Parent = ScreenGui
 MenuButton.Size = UDim2.new(0, 45, 0, 45)
-MenuButton.Position = UDim2.new(0, -55, 0, 0) 
+-- Căn vị trí ban đầu theo góc trái của MasterFrame
+MenuButton.Position = UDim2.new(MasterFrame.Position.X.Scale, MasterFrame.Position.X.Offset - 55, MasterFrame.Position.Y.Scale, MasterFrame.Position.Y.Offset) 
 MenuButton.BackgroundColor3 = GlassColor
 MenuButton.BackgroundTransparency = 0.15
 MenuButton.Font = Enum.Font.SourceSansBold
@@ -492,9 +493,6 @@ local function createActionBtn(parentPage, texts, callback)
     updateView()
 end
 
-
--- ==================== THIẾT LẬP CÁC CHỨC NĂNG VÀO TAB ====================
-
 -- TAB CHÍNH
 createModernToggle(MainContentPage, {VN = "Aimbot Tự Động", EN = "Aimbot System"}, AimbotEnabled, function(v) AimbotEnabled = v end)
 createModernToggle(MainContentPage, {VN = "ESP Xuyên Tường", EN = "ESP Wallhack"}, ESPEnabled, function(v) ESPEnabled = v end)
@@ -556,67 +554,84 @@ end, function()
 end)
 
 
--- ==================== HỆ THỐNG KÉO THẢ (DRAG) ĐA ĐIỂM THÔNG MINH ====================
-local dragging = false
-local dragInput, dragStart, startPos
-
--- Đồng bộ chữ hiển thị nút ban đầu
-MenuButton.Text = MenuVisible and ((CurrentLanguage == "VN") and "ẨN" or "HIDE") or ((CurrentLanguage == "VN") and "HIỆN" or "SHOW")
-
--- Biến lưu tọa độ click chuột/touch để phân biệt giữa "Kéo nút" và "Click nút"
+-- ==================== HỆ THỐNG KÉO THẢ (DRAG) ĐÃ FIX LỖI GIẬT NÚT ====================
+local activeDragging = false
+local dragInputInstance, dragStartPos, startFramePos, startButtonPos
 local startClickTime = 0
-local startClickPos = Vector3.new()
 
-local function updateMenuPos(input)
-    local delta = input.Position - dragStart
-    MasterFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+-- Hàm cập nhật đồng bộ vị trí khi di chuyển một trong hai bộ phận
+local function updatePositions(input)
+    local delta = input.Position - dragStartPos
+    
+    if MenuVisible then
+        -- Khi menu đang mở: Cả Menu và Nút di chuyển đồng bộ song song
+        MasterFrame.Position = UDim2.new(startFramePos.X.Scale, startFramePos.X.Offset + delta.X, startFramePos.Y.Scale, startFramePos.Y.Offset + delta.Y)
+        MenuButton.Position = UDim2.new(MasterFrame.Position.X.Scale, MasterFrame.Position.X.Offset - 55, MasterFrame.Position.Y.Scale, MasterFrame.Position.Y.Offset)
+    else
+        -- Khi menu đang đóng: Chỉ di chuyển riêng Nút bấm, Menu chính neo theo tọa độ mới của nút khi mở lại
+        MenuButton.Position = UDim2.new(startButtonPos.X.Scale, startButtonPos.X.Offset + delta.X, startButtonPos.Y.Scale, startButtonPos.Y.Offset + delta.Y)
+        MasterFrame.Position = UDim2.new(MenuButton.Position.X.Scale, MenuButton.Position.X.Offset + 55, MenuButton.Position.Y.Scale, MenuButton.Position.Y.Offset)
+    end
 end
 
--- Hàm kích hoạt sự kiện Drag (Bấm vào vật nào cũng di chuyển được MasterFrame)
-local function setupDragEvent(instance)
-    instance.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            dragStart = input.Position
-            startPos = MasterFrame.Position
-            
-            if instance == MenuButton then
-                startClickTime = os.clock()
-                startClickPos = input.Position
-            end
-            
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then 
-                    dragging = false 
-                end
-            end)
-        end
-    end)
-
-    instance.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
-            dragInput = input
-        end
-    end)
-end
-
--- Áp dụng drag cho cả thanh TopBar (khi mở menu) và chính chiếc MenuButton (khi đóng/mở menu)
-setupDragEvent(TopBar)
-setupDragEvent(MenuButton)
-
-UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then 
-        updateMenuPos(input) 
+-- Cài đặt sự kiện drag độc lập cho từng thành phần để không bị cộng dồn tọa độ (Double Delta)
+TopBar.InputBegan:Connect(function(input)
+    if (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1) and MenuVisible then
+        activeDragging = true
+        dragStartPos = input.Position
+        startFramePos = MasterFrame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then activeDragging = false end
+        end)
     end
 end)
 
--- XỬ LÝ CLICK NÚT ẨN HIỆN (Có lọc bộ kéo thả để tránh click nhầm khi đang di chuyển)
+TopBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInputInstance = input
+    end
+end)
+
+MenuButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        activeDragging = true
+        dragStartPos = input.Position
+        startFramePos = MasterFrame.Position
+        startButtonPos = MenuButton.Position
+        startClickTime = os.clock()
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then activeDragging = false end
+        end)
+    end
+end)
+
+MenuButton.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInputInstance = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInputInstance and activeDragging then 
+        updatePositions(input) 
+    end
+end)
+
+-- XỬ LÝ CLICK BẬT TẮT CHỐNG NHẦM KHI ĐANG KÉO NÚT
 MenuButton.MouseButton1Up:Connect(function()
-    local travelDistance = dragStart and (UserInputService:GetMouseLocation() - Vector2.new(dragStart.X, dragStart.Y)).Magnitude or 0
-    -- Nếu thời gian bấm ngắn và khoảng cách di chuyển nhỏ hơn 5 pixel thì coi như là CLICK
-    if (os.clock() - startClickTime) < 0.3 and travelDistance < 5 then
+    local currentMouseLoc = UserInputService:GetMouseLocation()
+    local dragDistance = dragStartPos and (currentMouseLoc - Vector2.new(dragStartPos.X, dragStartPos.Y)).Magnitude or 0
+    
+    if (os.clock() - startClickTime) < 0.25 and dragDistance < 8 then
         MenuVisible = not MenuVisible
         MainMenu.Visible = MenuVisible
         MenuButton.Text = MenuVisible and ((CurrentLanguage == "VN") and "ẨN" or "HIDE") or ((CurrentLanguage == "VN") and "HIỆN" or "SHOW")
+        
+        -- Đồng bộ lại vị trí chuẩn xác của Menu theo Nút ngay tại thời điểm mở lại
+        if MenuVisible then
+            MasterFrame.Position = UDim2.new(MenuButton.Position.X.Scale, MenuButton.Position.X.Offset + 55, MenuButton.Position.Y.Scale, MenuButton.Position.Y.Offset)
+        end
     end
 end)
