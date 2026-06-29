@@ -10,27 +10,35 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- BIẾN CẤU HÌNH HỆ THỐNG (SETTINGS)
+-- BIẾN CẤU HÌNH HỆ THỐNG
 local AimbotEnabled = true
 local ESPEnabled = true
-local BlueBackgroundEnabled = true -- Mặc định là nền xanh mờ (BẬT)
-local MenuVisible = true -- Trạng thái ẩn/hiện của bảng menu chính
-local FPSToggleState = false -- Chức năng tăng FPS mặc định là TẮT
-local FlyEnabled = false -- Chức năng Bay mặc định là TẮT
-local FlySpeed = 50 -- Tốc độ bay mặc định
-local SpinEnabled = false -- Chức năng Quay mặc định là TẮT
+local BlueBackgroundEnabled = true
+local MenuVisible = true
+local FPSToggleState = false
+local FlyEnabled = false
+local FlySpeed = 50
+local SpinEnabled = false
+local NoclipEnabled = false
+local WalkSpeedEnabled = false
+local CustomWalkSpeed = 100
+local InfiniteJumpEnabled = false
+local KillAuraEnabled = false
+
+local OriginalToolData = {} 
+local KillAuraConnection = nil
+local GIANT_SIZE = Vector3.new(2000, 2000, 2000)
+
 local FOV_RADIUS = 35 
 local MAX_LINE_DISTANCE = 200 
 local TARGET_PART = "Head"
-local CurrentTarget = nil
 
--- Cấu hình màu sắc mặc định
+-- CẤU HÌNH MÀU SẮC
 local FOVColor = Color3.fromRGB(173, 216, 230) 
 local ESPColor = Color3.fromRGB(0, 162, 255)  
-local DefaultMenuColor = Color3.fromRGB(30, 30, 35) -- Màu nền xám tối gốc
-local BlueMenuColor = Color3.fromRGB(10, 40, 75)   -- Màu nền xanh nước biển mờ
+local DefaultMenuColor = Color3.fromRGB(30, 30, 35)
+local BlueMenuColor = Color3.fromRGB(10, 40, 75)
 
--- DANH SÁCH MÀU SẮC ĐỂ THAY ĐỔI TRÊN MENU
 local ColorPresets = {
     {Name = "Cyan", Color = Color3.fromRGB(0, 162, 255)},
     {Name = "Red", Color = Color3.fromRGB(255, 0, 0)},
@@ -50,7 +58,6 @@ FOVCircle.Filled = false
 FOVCircle.Radius = FOV_RADIUS
 FOVCircle.Visible = AimbotEnabled
 
--- KHỞI TẠO 3 ĐƯỜNG TRACER LINES CHO 3 KẺ ĐỊCH GẦN NHẤT
 local TracerLines = {}
 for i = 1, 3 do
     local line = Drawing.new("Line")
@@ -61,116 +68,55 @@ for i = 1, 3 do
     table.insert(TracerLines, line)
 end
 
--- LOGIC HÀM BỔ TRỢ (UTILITIES)
+-- TỐI ƯU HÓA: Tái sử dụng RaycastParams để tránh tạo mới 60 lần/giây
+local RaycastCache = RaycastParams.new()
+RaycastCache.FilterType = Enum.RaycastFilterType.Exclude
+
 local function isVisible(targetCharacter, targetPart)
     if not LocalPlayer.Character or not targetCharacter then return false end
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, targetCharacter, Camera}
+    RaycastCache.FilterDescendantsInstances = {LocalPlayer.Character, targetCharacter, Camera}
     local origin = Camera.CFrame.Position
     local direction = targetPart.Position - origin
-    local raycastResult = workspace:Raycast(origin, direction, raycastParams)
-    return raycastResult == nil
+    return workspace:Raycast(origin, direction, RaycastCache) == nil
 end
 
-local function getClosestPlayerToCenter()
-    local closestPlayer = nil
-    local shortestDistance = math.huge
-    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(TARGET_PART) then
-            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Health > 0 then
-                local targetPart = player.Character[TARGET_PART]
-                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                if onScreen then
-                    local targetPos2D = Vector2.new(screenPos.X, screenPos.Y)
-                    local distanceToCenter = (targetPos2D - screenCenter).Magnitude
-                    if distanceToCenter <= FOV_RADIUS and distanceToCenter < shortestDistance then
-                        if isVisible(player.Character, targetPart) then
-                            closestPlayer = player
-                            shortestDistance = distanceToCenter
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return closestPlayer
-end
-
-local function getTop3ClosestPlayersForTracers()
-    local targets = {}
-    local localCharacter = LocalPlayer.Character
-    local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
-    if not localRoot then return targets end
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(TARGET_PART) then
-            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-            local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
-            if humanoid and humanoid.Health > 0 and rootPart then
-                local distance = (rootPart.Position - localRoot.Position).Magnitude
-                if distance <= MAX_LINE_DISTANCE then
-                    table.insert(targets, {Player = player, Distance = distance})
-                end
-            end
-        end
-    end
-
-    table.sort(targets, function(a, b)
-        return a.Distance < b.Distance
-    end)
-
-    local top3 = {}
-    for i = 1, math.min(3, #targets) do
-        table.insert(top3, targets[i].Player)
-    end
-    return top3
-end
-
+-- TỐI ƯU HÓA ESP: Chuyển ra khỏi RenderStepped
 local function applyESP(player)
-    if player == LocalPlayer then return end
-    local character = player.Character
-    if character then
-        local highlight = character:FindFirstChild("ESPHighlight")
-        if not highlight then
-            highlight = Instance.new("Highlight")
-            highlight.Name = "ESPHighlight"
-            highlight.FillTransparency = 0.5 
-            highlight.OutlineColor = Color3.fromRGB(255, 255, 255) 
-            highlight.OutlineTransparency = 0 
-            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop 
-            highlight.Parent = character
-        end
-        highlight.FillColor = ESPColor
-        highlight.Enabled = ESPEnabled
+    if player == LocalPlayer or not player.Character then return end
+    local highlight = player.Character:FindFirstChild("ESPHighlight")
+    if not highlight then
+        highlight = Instance.new("Highlight")
+        highlight.Name = "ESPHighlight"
+        highlight.FillTransparency = 0.5 
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255) 
+        highlight.OutlineTransparency = 0 
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop 
+        highlight.Parent = player.Character
     end
+    highlight.FillColor = ESPColor
+    highlight.Enabled = ESPEnabled
 end
 
 local function removeESP(player)
-    local character = player.Character
-    if character then
-        local highlight = character:FindFirstChild("ESPHighlight")
+    if player.Character then
+        local highlight = player.Character:FindFirstChild("ESPHighlight")
         if highlight then highlight:Destroy() end
     end
 end
 
-local function clearAllESP()
+local function updateAllESP()
     for _, player in ipairs(Players:GetPlayers()) do
-        removeESP(player)
+        if ESPEnabled then applyESP(player) else removeESP(player) end
     end
 end
 
+-- TỐI ƯU HÓA FPS BOOSTER
 local HiddenPlayers = {}
 local function IsImportant(instance)
     local name = string.lower(instance.Name)
     local protectedNames = {"baseplate", "spawnlocation", "floor", "ground", "sàn", "checkpoint", "teleport"}
     for _, protected in ipairs(protectedNames) do
-        if string.find(name, protected) then
-            return true
-        end
+        if string.find(name, protected) then return true end
     end
     return false
 end
@@ -180,18 +126,12 @@ local function SmartOptimize(instance)
         instance.Material = Enum.Material.SmoothPlastic
         instance.CastShadow = false
         instance.Reflectance = 0
-        if instance:IsA("MeshPart") and not IsImportant(instance) then
-            instance.TextureID = ""
-        end
+        if instance:IsA("MeshPart") and not IsImportant(instance) then instance.TextureID = "" end
     elseif instance:IsA("ParticleEmitter") or instance:IsA("Smoke") or instance:IsA("Fire") or instance:IsA("Sparkles") or instance:IsA("Trail") or instance:IsA("Beam") then
-        task.spawn(function()
-            if instance and instance.Parent then instance:Destroy() end
-        end)
+        task.defer(function() if instance and instance.Parent then instance:Destroy() end end)
     elseif instance:IsA("Decal") or instance:IsA("Texture") then
         if instance.Parent and not IsImportant(instance.Parent) then
-            task.spawn(function()
-                if instance and instance.Parent then instance:Destroy() end
-            end)
+            task.defer(function() if instance and instance.Parent then instance:Destroy() end end)
         end
     end
 end
@@ -215,7 +155,7 @@ local function ExecuteSmartFPSBooster()
             if not descendant:IsDescendantOf(LocalPlayer.Character or workspace) then
                 SmartOptimize(descendant)
                 count = count + 1
-                if count >= 150 then
+                if count >= 200 then
                     count = 0
                     RunService.Heartbeat:Wait()
                 end
@@ -227,75 +167,16 @@ local function ExecuteSmartFPSBooster()
         if LocalPlayer.Character and descendant:IsDescendantOf(LocalPlayer.Character) then return end
         SmartOptimize(descendant)
     end)
-
-    task.spawn(function()
-        while true do
-            task.wait(3)
-            if FPSToggleState then
-                local localCharacter = LocalPlayer.Character
-                local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
-                if localRoot then
-                    for _, player in ipairs(Players:GetPlayers()) do
-                        if player ~= LocalPlayer and player.Character then
-                            local char = player.Character
-                            local root = char:FindFirstChild("HumanoidRootPart")
-                            if root then
-                                local distance = (root.Position - localRoot.Position).Magnitude
-                                if distance > 250 then
-                                    if char.Parent == Workspace then
-                                        HiddenPlayers[player] = char
-                                        char.Parent = nil
-                                    end
-                                else
-                                    if HiddenPlayers[player] and HiddenPlayers[player].Parent == nil then
-                                        HiddenPlayers[player].Parent = Workspace
-                                        HiddenPlayers[player] = nil
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            else
-                for player, char in pairs(HiddenPlayers) do
-                    if char and player.Parent then
-                        char.Parent = Workspace
-                    end
-                    HiddenPlayers[player] = nil
-                end
-            end
-            
-            for player, char in pairs(HiddenPlayers) do
-                if not player.Parent then
-                    HiddenPlayers[player] = nil
-                end
-            end
-        end
-    end)
-
-    task.spawn(function()
-        while true do
-            task.wait(20)
-            if FPSToggleState then
-                gcinfo()
-                settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
-            end
-        end
-    end)
 end
 
--- HỆ THỐNG XỬ LÝ FLY (BAY) - ĐÃ FIX LỖI BAY NGƯỢC BIẾN THIÊN THEO CAMERA
-local flyConnection = nil
-local bodyVelocity = nil
-local bodyGyro = nil
+-- FLY, NOCLIP, JUMP & SPIN
+local flyConnection, bodyVelocity, bodyGyro
 
 local function StartFly()
     if flyConnection then flyConnection:Disconnect() end
-    
     local character = LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    
     if not rootPart or not humanoid then return end
 
     bodyVelocity = Instance.new("BodyVelocity")
@@ -310,38 +191,20 @@ local function StartFly()
     bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
     bodyGyro.P = 9000
     bodyGyro.Parent = rootPart
-
     humanoid.PlatformStand = true
 
     flyConnection = RunService.RenderStepped:Connect(function()
         if not FlyEnabled or not rootPart or not character.Parent then
-            if flyConnection then
-                flyConnection:Disconnect()
-                flyConnection = nil
-            end
+            if flyConnection then flyConnection:Disconnect() flyConnection = nil end
             return
         end
-
         bodyGyro.CFrame = Camera.CFrame
         local walkDir = humanoid.MoveDirection
 
         if walkDir.Magnitude > 0 then
-            -- Áp dụng phép chiếu vector để loại bỏ lỗi đảo ngược trục dựa trên tọa độ thế giới (World Space)
             local camFrame = Camera.CFrame
-            local flatCamLook = Vector3.new(camFrame.LookVector.X, 0, camFrame.LookVector.Z).Unit
-            local flatCamRight = Vector3.new(camFrame.RightVector.X, 0, camFrame.RightVector.Z).Unit
-            
-            -- Tính toán tỉ lệ di chuyển tương đối so với góc xoay phẳng của Camera
-            local localZ = walkDir:Dot(flatCamLook)
-            local localX = walkDir:Dot(flatCamRight)
-            
-            -- Đồng bộ hóa vector di chuyển 3D thực tế theo đúng Vector Look hướng nhìn của Camera (Fix hoàn toàn bay ngược)
-            local flightVector = (camFrame.LookVector * localZ + camFrame.RightVector * localX)
-            if flightVector.Magnitude > 0 then
-                bodyVelocity.Velocity = flightVector.Unit * FlySpeed
-            else
-                bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-            end
+            local flightVector = (camFrame.LookVector * walkDir:Dot(Vector3.new(camFrame.LookVector.X, 0, camFrame.LookVector.Z).Unit) + camFrame.RightVector * walkDir:Dot(Vector3.new(camFrame.RightVector.X, 0, camFrame.RightVector.Z).Unit))
+            bodyVelocity.Velocity = flightVector.Magnitude > 0 and (flightVector.Unit * FlySpeed) or Vector3.new(0, 0, 0)
         else
             bodyVelocity.Velocity = Vector3.new(0, 0, 0)
         end
@@ -349,11 +212,7 @@ local function StartFly()
 end
 
 local function StopFly()
-    if flyConnection then
-        flyConnection:Disconnect()
-        flyConnection = nil
-    end
-    
+    if flyConnection then flyConnection:Disconnect() flyConnection = nil end
     local character = LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -364,34 +223,94 @@ local function StopFly()
         if fV then fV:Destroy() end
         if fG then fG:Destroy() end
     end
-
-    if humanoid then
-        humanoid.PlatformStand = false
-    end
+    if humanoid then humanoid.PlatformStand = false end
 end
 
-LocalPlayer.CharacterAdded:Connect(function(char)
-    if FlyEnabled then
-        task.wait(1)
-        StartFly()
+LocalPlayer.CharacterAdded:Connect(function(char) if FlyEnabled then task.wait(1) StartFly() end end)
+
+RunService.Stepped:Connect(function()
+    if NoclipEnabled and LocalPlayer.Character then
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = false end
+        end
     end
 end)
 
--- HỆ THỐNG SPIN (QUAY NHÂN VẬT)
-local spinConnection = nil
+UserInputService.JumpRequest:Connect(function()
+    if InfiniteJumpEnabled and LocalPlayer.Character then
+        local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end
+end)
+
 task.spawn(function()
     RunService.Heartbeat:Connect(function()
         if SpinEnabled and not FlyEnabled then
             local character = LocalPlayer.Character
             local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-            if rootPart then
-                rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, math.rad(25), 0)
-            end
+            if rootPart then rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, math.rad(25), 0) end
         end
     end)
 end)
 
--- VÒNG LẶP CHÍNH (MAIN LOOP)
+-- HỆ THỐNG XỬ LÝ KILL AURA
+local function resetSwordSize(tool)
+    if tool and tool:FindFirstChild("Handle") and OriginalToolData[tool] then
+        local handle = tool.Handle
+        handle.Size = OriginalToolData[tool].Size
+        tool.Grip = OriginalToolData[tool].Grip
+        handle.Massless = false
+        handle.CanCollide = true
+        OriginalToolData[tool] = nil
+    end
+end
+
+local function stopKillAuraLogic()
+    if KillAuraConnection then KillAuraConnection:Disconnect() KillAuraConnection = nil end
+    for tool, _ in pairs(OriginalToolData) do resetSwordSize(tool) end
+    OriginalToolData = {}
+end
+
+local function startKillAuraLogic()
+    if KillAuraConnection then return end
+    KillAuraConnection = RunService.Heartbeat:Connect(function()
+        if not KillAuraEnabled then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+
+        local equippedTool = char:FindFirstChildOfClass("Tool")
+        if equippedTool and equippedTool:FindFirstChild("Handle") then
+            local handle = equippedTool.Handle
+            if not OriginalToolData[equippedTool] then
+                OriginalToolData[equippedTool] = { Size = handle.Size, Grip = equippedTool.Grip }
+            end
+            
+            handle.Size = GIANT_SIZE
+            handle.Massless = true
+            handle.CanCollide = false
+            equippedTool.Grip = CFrame.new(0, 0, -(GIANT_SIZE.Z / 2) - 10)
+            equippedTool:Activate()
+
+            if firetouchinterest then
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                        firetouchinterest(handle, player.Character.HumanoidRootPart, 0)
+                        firetouchinterest(handle, player.Character.HumanoidRootPart, 1)
+                    end
+                end
+            end
+        end
+
+        local backpack = LocalPlayer:FindFirstChild("Backpack")
+        if backpack then
+            for _, item in ipairs(backpack:GetChildren()) do
+                if item:IsA("Tool") and OriginalToolData[item] then resetSwordSize(item) end
+            end
+        end
+    end)
+end
+
+-- VÒNG LẶP CHÍNH (ĐÃ GỘP TẤT CẢ VÀO 1 VÒNG ĐỂ TỐI ƯU FPS)
 RunService.RenderStepped:Connect(function()
     local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     
@@ -400,62 +319,66 @@ RunService.RenderStepped:Connect(function()
     FOVCircle.Color = FOVColor
     FOVCircle.Visible = AimbotEnabled
 
-    -- LOGIC AIMBOT
-    if AimbotEnabled then
-        if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild(TARGET_PART) then
-            local humanoid = CurrentTarget.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Health > 0 then
-                local targetPart = CurrentTarget.Character[TARGET_PART]
-                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                local targetPos2D = Vector2.new(screenPos.X, screenPos.Y)
-                local distanceToCenter = (targetPos2D - screenCenter).Magnitude
+    local localCharacter = LocalPlayer.Character
+    local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
+    
+    local closestAimbotPlayer = nil
+    local shortestDistance = math.huge
+    local tracerCandidates = {}
 
-                if not onScreen or distanceToCenter > FOV_RADIUS or not isVisible(CurrentTarget.Character, targetPart) then
-                    CurrentTarget = nil
+    -- Chỉ dùng duy nhất 1 vòng lặp cho cả Aimbot và Tracers
+    if AimbotEnabled or ESPEnabled then
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player == LocalPlayer or not player.Character then continue end
+            
+            local char = player.Character
+            local targetPart = char:FindFirstChild(TARGET_PART)
+            local root = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+
+            if hum and hum.Health > 0 and targetPart and root and char.Parent == Workspace then
+                -- Check Aimbot
+                if AimbotEnabled then
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                    if onScreen then
+                        local distanceToCenter = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                        if distanceToCenter <= FOV_RADIUS and distanceToCenter < shortestDistance and isVisible(char, targetPart) then
+                            closestAimbotPlayer = player
+                            shortestDistance = distanceToCenter
+                        end
+                    end
+                end
+
+                -- Collect Tracer Data
+                if ESPEnabled and localRoot then
+                    local distance = (root.Position - localRoot.Position).Magnitude
+                    if distance <= MAX_LINE_DISTANCE then
+                        table.insert(tracerCandidates, {Player = player, Distance = distance, TargetPart = targetPart})
+                    end
                 end
             end
-        else
-            CurrentTarget = nil
         end
-
-        if not CurrentTarget then
-            CurrentTarget = getClosestPlayerToCenter()
-        end
-
-        if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild(TARGET_PART) then
-            local targetPos = CurrentTarget.Character[TARGET_PART].Position
-            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
-        end
-    else
-        CurrentTarget = nil
     end
 
-    -- LOGIC ESP KHỐI & TRACERS LINE
-    if ESPEnabled then
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character and player.Character.Parent == Workspace then
-                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-                if humanoid and humanoid.Health > 0 then
-                    applyESP(player)
-                else
-                    removeESP(player)
-                end
-            end
-        end
+    -- Xử lý Aimbot
+    if AimbotEnabled and closestAimbotPlayer then
+        local targetPos = closestAimbotPlayer.Character[TARGET_PART].Position
+        Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+    end
 
-        local closest3Players = getTop3ClosestPlayersForTracers()
+    -- Xử lý Tracers
+    if ESPEnabled then
+        if #tracerCandidates > 1 then
+            table.sort(tracerCandidates, function(a, b) return a.Distance < b.Distance end)
+        end
         for i = 1, 3 do
-            local targetPlayer = closest3Players[i]
             local line = TracerLines[i]
-            
-            if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild(TARGET_PART) and targetPlayer.Character.Parent == Workspace then
-                local targetPart = targetPlayer.Character[TARGET_PART]
-                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                
+            local candidate = tracerCandidates[i]
+            if candidate then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(candidate.TargetPart.Position)
                 if onScreen then
                     line.From = screenCenter
                     line.To = Vector2.new(screenPos.X, screenPos.Y)
-                    line.Color = Color3.fromRGB(255, 255, 0)
                     line.Visible = true
                 else
                     line.Visible = false
@@ -465,37 +388,32 @@ RunService.RenderStepped:Connect(function()
             end
         end
     else
-        for i = 1, 3 do
-            TracerLines[i].Visible = false
-        end
-        clearAllESP()
+        for i = 1, 3 do TracerLines[i].Visible = false end
+    end
+    
+    -- WalkSpeed
+    if WalkSpeedEnabled and localCharacter then
+        local humanoid = localCharacter:FindFirstChildOfClass("Humanoid")
+        if humanoid then humanoid.WalkSpeed = CustomWalkSpeed end
     end
 end)
 
--- Quản lý nạp/tải lại ESP khi nhân vật hồi sinh
 local function setupPlayerConnections(player)
     player.CharacterAdded:Connect(function(character) 
         task.wait(0.5) 
-        if ESPEnabled and character.Parent == Workspace then 
-            applyESP(player) 
-        end 
+        if ESPEnabled then applyESP(player) end 
     end)
+    if player.Character and ESPEnabled then applyESP(player) end
 end
 
-for _, player in ipairs(Players:GetPlayers()) do
-    setupPlayerConnections(player)
-end
-
+for _, player in ipairs(Players:GetPlayers()) do setupPlayerConnections(player) end
 Players.PlayerAdded:Connect(setupPlayerConnections)
-
 Players.PlayerRemoving:Connect(function(player) 
     removeESP(player) 
-    if HiddenPlayers[player] then 
-        HiddenPlayers[player] = nil 
-    end 
+    if HiddenPlayers[player] then HiddenPlayers[player] = nil end 
 end)
 
--- TẠO GIAO DIỆN HỆ THỐNG MENU KIỂU DASHBOARD
+-- GIAO DIỆN HỆ THỐNG MENU KIỂU DASHBOARD
 if PlayerGui:FindFirstChild("MobileCheatMenu") then PlayerGui.MobileCheatMenu:Destroy() end
 
 local ScreenGui = Instance.new("ScreenGui")
@@ -504,38 +422,69 @@ ScreenGui.Parent = PlayerGui
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-local MainMenu = Instance.new("Frame")
+-- BẢNG THÔNG TIN FPS & PING
+local StatsFrame = Instance.new("Frame")
+StatsFrame.Name = "StatsFrame"
+StatsFrame.Parent = ScreenGui
+StatsFrame.Size = UDim2.new(0, 110, 0, 45)
+StatsFrame.Position = UDim2.new(0, 15, 0, 15)
+StatsFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+StatsFrame.BackgroundTransparency = 0.3
+StatsFrame.BorderSizePixel = 0
+
+Instance.new("UICorner", StatsFrame).CornerRadius = UDim.new(0, 6)
+local StatsList = Instance.new("UIListLayout", StatsFrame)
+StatsList.Padding = UDim.new(0, 2)
+StatsList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+StatsList.VerticalAlignment = Enum.VerticalAlignment.Center
+
+local FpsLabel = Instance.new("TextLabel", StatsFrame)
+FpsLabel.Size = UDim2.new(1, 0, 0, 18)
+FpsLabel.BackgroundTransparency = 1
+FpsLabel.Font = Enum.Font.SourceSansBold
+FpsLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
+FpsLabel.TextSize = 14
+
+local PingLabel = Instance.new("TextLabel", StatsFrame)
+PingLabel.Size = UDim2.new(1, 0, 0, 18)
+PingLabel.BackgroundTransparency = 1
+PingLabel.Font = Enum.Font.SourceSansBold
+PingLabel.TextColor3 = Color3.fromRGB(0, 170, 255)
+PingLabel.TextSize = 14
+
+local lastUpdate, frameCount = 0, 0
+RunService.RenderStepped:Connect(function()
+    frameCount = frameCount + 1
+    local now = os.clock()
+    if now - lastUpdate >= 0.5 then
+        FpsLabel.Text = "FPS: " .. math.floor(frameCount / (now - lastUpdate))
+        PingLabel.Text = "PING: " .. math.max(0, math.floor(LocalPlayer:GetNetworkPing() * 1000)) .. " ms"
+        frameCount = 0
+        lastUpdate = now
+    end
+end)
+
+-- MAIN MENU
+local MainMenu = Instance.new("Frame", ScreenGui)
 MainMenu.Name = "MainMenu"
-MainMenu.Parent = ScreenGui
 MainMenu.BorderSizePixel = 0
 MainMenu.Position = UDim2.new(0.2, 0, 0.2, 0)
 MainMenu.Size = UDim2.new(0, 520, 0, 320)
 MainMenu.Active = true
 MainMenu.ZIndex = 2
+Instance.new("UICorner", MainMenu).CornerRadius = UDim.new(0, 10)
 
 local function updateMenuBackground()
-    if BlueBackgroundEnabled then
-        MainMenu.BackgroundColor3 = BlueMenuColor
-        MainMenu.BackgroundTransparency = 0.2
-    else
-        MainMenu.BackgroundColor3 = DefaultMenuColor
-        MainMenu.BackgroundTransparency = 0
-    end
+    MainMenu.BackgroundColor3 = BlueBackgroundEnabled and BlueMenuColor or DefaultMenuColor
+    MainMenu.BackgroundTransparency = BlueBackgroundEnabled and 0.2 or 0
 end
 updateMenuBackground()
 
-local MenuCorner = Instance.new("UICorner")
-MenuCorner.CornerRadius = UDim.new(0, 10)
-MenuCorner.Parent = MainMenu
-
-local TopBar = Instance.new("Frame")
-TopBar.Name = "TopBar"
-TopBar.Parent = MainMenu
+local TopBar = Instance.new("Frame", MainMenu)
 TopBar.Size = UDim2.new(1, 0, 0, 35)
 TopBar.BackgroundTransparency = 1
 
-local Title = Instance.new("TextLabel")
-Title.Parent = TopBar
+local Title = Instance.new("TextLabel", TopBar)
 Title.Size = UDim2.new(0, 200, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
@@ -545,27 +494,19 @@ Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.TextSize = 16
 Title.TextXAlignment = Enum.TextXAlignment.Left
 
-local Sidebar = Instance.new("Frame")
-Sidebar.Name = "Sidebar"
-Sidebar.Parent = MainMenu
+local Sidebar = Instance.new("Frame", MainMenu)
 Sidebar.Position = UDim2.new(0, 10, 0, 45)
 Sidebar.Size = UDim2.new(0, 140, 1, -55)
 Sidebar.BackgroundTransparency = 0.9
 Sidebar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 8)
 
-local SidebarCorner = Instance.new("UICorner")
-SidebarCorner.CornerRadius = UDim.new(0, 8)
-SidebarCorner.Parent = Sidebar
-
-local SidebarLayout = Instance.new("UIListLayout")
-SidebarLayout.Parent = Sidebar
+local SidebarLayout = Instance.new("UIListLayout", Sidebar)
 SidebarLayout.Padding = UDim.new(0, 5)
 SidebarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 SidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
 
-local ContentContainer = Instance.new("ScrollingFrame")
-ContentContainer.Name = "ContentContainer"
-ContentContainer.Parent = MainMenu
+local ContentContainer = Instance.new("ScrollingFrame", MainMenu)
 ContentContainer.Position = UDim2.new(0, 160, 0, 45)
 ContentContainer.Size = UDim2.new(1, -170, 1, -55)
 ContentContainer.BackgroundTransparency = 1
@@ -573,11 +514,8 @@ ContentContainer.ClipsDescendants = true
 ContentContainer.ScrollBarThickness = 4
 ContentContainer.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
 ContentContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
-ContentContainer.ElasticBehavior = Enum.ElasticBehavior.Always
-ContentContainer.ScrollingDirection = Enum.ScrollingDirection.Y
 
-local ContentLayout = Instance.new("UIListLayout")
-ContentLayout.Parent = ContentContainer
+local ContentLayout = Instance.new("UIListLayout", ContentContainer)
 ContentLayout.Padding = UDim.new(0, 8)
 ContentLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 ContentLayout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -586,62 +524,32 @@ ContentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
     ContentContainer.CanvasSize = UDim2.new(0, 0, 0, ContentLayout.AbsoluteContentSize.Y + 15)
 end)
 
-local MenuButton = Instance.new("TextButton")
-MenuButton.Name = "MenuVisibilityButton"
-MenuButton.Parent = ScreenGui
+local MenuButton = Instance.new("TextButton", ScreenGui)
 MenuButton.Size = UDim2.new(0, 50, 0, 50)
 MenuButton.Position = UDim2.new(MainMenu.Position.X.Scale, MainMenu.Position.X.Offset - 55, MainMenu.Position.Y.Scale, MainMenu.Position.Y.Offset)
-MenuButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 MenuButton.BackgroundTransparency = 1 
 MenuButton.Font = Enum.Font.SourceSansBold
 MenuButton.Text = "ẨN"
 MenuButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 MenuButton.TextSize = 14
-MenuButton.TextStrokeTransparency = 0.3 
-MenuButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 MenuButton.ZIndex = 4
+Instance.new("UICorner", MenuButton).CornerRadius = UDim.new(0, 8)
 
-local ButtonCorner = Instance.new("UICorner")
-ButtonCorner.CornerRadius = UDim.new(0, 8)
-ButtonCorner.Parent = MenuButton
-
-local ButtonImage = Instance.new("ImageLabel")
-ButtonImage.Name = "ButtonBackground"
-ButtonImage.Parent = MenuButton
-ButtonImage.Size = UDim2.new(1, 0, 1, 0)
-ButtonImage.BackgroundTransparency = 1
-ButtonImage.Image = "rbxassetid://YOUR_IMAGE_ID_HERE" 
-ButtonImage.ScaleType = Enum.ScaleType.Crop
-ButtonImage.ZIndex = 3
-
-local ImageCorner = Instance.new("UICorner")
-ImageCorner.CornerRadius = UDim.new(0, 8)
-ImageCorner.Parent = ButtonImage
-
+-- HÀM TẠO NÚT MENU
 local function createToggle(name, textON, textOFF, defaultState, callback)
     local btn = Instance.new("TextButton")
     local state = defaultState
-    btn.Name = name
     btn.Size = UDim2.new(0, 320, 0, 35)
     btn.Font = Enum.Font.SourceSansBold
     btn.TextSize = 14
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
     local function updateView()
-        if state then
-            btn.Text = textON
-            btn.BackgroundColor3 = Color3.fromRGB(0, 170, 100)
-        else
-            btn.Text = textOFF
-            btn.BackgroundColor3 = Color3.fromRGB(170, 50, 50)
-        end
+        btn.Text = state and textON or textOFF
+        btn.BackgroundColor3 = state and Color3.fromRGB(0, 170, 100) or Color3.fromRGB(170, 50, 50)
     end
     updateView()
-
     btn.MouseButton1Click:Connect(function()
         state = not state
         updateView()
@@ -658,11 +566,7 @@ local function createActionBtn(text, callback)
     btn.Text = text
     btn.TextColor3 = Color3.fromRGB(220, 220, 220)
     btn.TextSize = 13
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
-    
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
     btn.MouseButton1Click:Connect(callback)
     return btn
 end
@@ -670,7 +574,7 @@ end
 local Tabs = {Main = {}, Sub = {}}
 
 local function createTabButton(name, layoutOrder)
-    local btn = Instance.new("TextButton")
+    local btn = Instance.new("TextButton", Sidebar)
     btn.Size = UDim2.new(0, 125, 0, 35)
     btn.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
     btn.Font = Enum.Font.SourceSansBold
@@ -678,11 +582,7 @@ local function createTabButton(name, layoutOrder)
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.TextSize = 13
     btn.LayoutOrder = layoutOrder
-    btn.Parent = Sidebar
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
     return btn
 end
 
@@ -691,89 +591,89 @@ local SubTabBtn = createTabButton("Chức Năng Phụ", 2)
 
 local function displayTab(tabName)
     for _, instance in ipairs(ContentContainer:GetChildren()) do
-        if instance:IsA("TextButton") then
-            instance.Visible = false
-        end
+        if instance:IsA("TextButton") then instance.Visible = false end
     end
-    for _, instance in ipairs(Tabs[tabName]) do
-        instance.Visible = true
-    end
-    
-    if tabName == "Main" then
-        MainTabBtn.BackgroundColor3 = Color3.fromRGB(0, 162, 255)
-        SubTabBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
-    else
-        MainTabBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
-        SubTabBtn.BackgroundColor3 = Color3.fromRGB(0, 162, 255)
-    end
+    for _, instance in ipairs(Tabs[tabName]) do instance.Visible = true end
+    MainTabBtn.BackgroundColor3 = tabName == "Main" and Color3.fromRGB(0, 162, 255) or Color3.fromRGB(45, 45, 55)
+    SubTabBtn.BackgroundColor3 = tabName == "Sub" and Color3.fromRGB(0, 162, 255) or Color3.fromRGB(45, 45, 55)
     ContentContainer.CanvasPosition = Vector2.new(0, 0)
 end
 
--- TAB CHÍNH (ĐÃ CHUYỂN ESP XUYÊN TƯỜNG LÊN ĐÂY)
+-- THÊM CÁC NÚT VÀO TABS
+local KillAuraMenuToggle = createToggle("KillAuraMenuToggle", "KILL AURA: BẬT", "KILL AURA: TẮT", false, function(v)
+    KillAuraEnabled = v
+    if v then startKillAuraLogic() else stopKillAuraLogic() end
+end)
+KillAuraMenuToggle.Parent = ContentContainer
+table.insert(Tabs.Main, KillAuraMenuToggle)
+
 local AimToggle = createToggle("AimToggle", "AIMBOT: BẬT", "AIMBOT: TẮT", AimbotEnabled, function(v) AimbotEnabled = v end)
 AimToggle.Parent = ContentContainer
 table.insert(Tabs.Main, AimToggle)
 
-local ESPToggle = createToggle("ESPToggle", "ESP XUYÊN TƯỜNG: BẬT", "ESP XUYÊN TƯỜNG: TẮT", ESPEnabled, function(v) ESPEnabled = v end)
+local ESPToggle = createToggle("ESPToggle", "ESP XUYÊN TƯỜNG: BẬT", "ESP XUYÊN TƯỜNG: TẮT", ESPEnabled, function(v) 
+    ESPEnabled = v 
+    updateAllESP()
+end)
 ESPToggle.Parent = ContentContainer
 table.insert(Tabs.Main, ESPToggle)
 
 local FPSToggle = createToggle("FPSToggle", "TĂNG FPS: BẬT", "TĂNG FPS: TẮT", FPSToggleState, function(v)
     FPSToggleState = v
-    if FPSToggleState then
-        ExecuteSmartFPSBooster()
-    end
+    if v then ExecuteSmartFPSBooster() end
 end)
 FPSToggle.Parent = ContentContainer
 table.insert(Tabs.Main, FPSToggle)
 
 -- TAB PHỤ
+local NoclipBtn = createToggle("NoclipBtn", "ĐI XUYÊN TƯỜNG: BẬT", "ĐI XUYÊN TƯỜNG: TẮT", NoclipEnabled, function(v) NoclipEnabled = v end)
+NoclipBtn.Parent = ContentContainer
+table.insert(Tabs.Sub, NoclipBtn)
+
+local WalkSpeedBtn = createToggle("WalkSpeedBtn", "HACK TỐC ĐỘ CHẠY: BẬT", "HACK TỐC ĐỘ CHẠY: TẮT", WalkSpeedEnabled, function(v)
+    WalkSpeedEnabled = v
+    if not v and LocalPlayer.Character then
+        local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then humanoid.WalkSpeed = 16 end
+    end
+end)
+WalkSpeedBtn.Parent = ContentContainer
+table.insert(Tabs.Sub, WalkSpeedBtn)
+
+local InfJumpBtn = createToggle("InfJumpBtn", "NHẢY VÔ HẠN: BẬT", "NHẢY VÔ HẠN: TẮT", InfiniteJumpEnabled, function(v) InfiniteJumpEnabled = v end)
+InfJumpBtn.Parent = ContentContainer
+table.insert(Tabs.Sub, InfJumpBtn)
+
 local FlyToggle = createToggle("FlyToggle", "BAY (FLY): BẬT", "BAY (FLY): TẮT", FlyEnabled, function(v)
     FlyEnabled = v
-    if FlyEnabled then
-        StartFly()
-    else
-        StopFly()
-    end
+    if v then StartFly() else StopFly() end
 end)
 FlyToggle.Parent = ContentContainer
 table.insert(Tabs.Sub, FlyToggle)
 
 local FlySpeedBtn
 FlySpeedBtn = createActionBtn("TỐC ĐỘ BAY: 50", function()
-    if FlySpeed == 50 then FlySpeed = 100
-    elseif FlySpeed == 100 then FlySpeed = 150
-    elseif FlySpeed == 150 then FlySpeed = 200
-    elseif FlySpeed == 200 then FlySpeed = 250
-    else FlySpeed = 50 end
+    FlySpeed = (FlySpeed >= 250) and 50 or (FlySpeed + 50)
     FlySpeedBtn.Text = "TỐC ĐỘ BAY: " .. tostring(FlySpeed)
-    if FlyEnabled then StartFly() end
 end)
 FlySpeedBtn.Parent = ContentContainer
 table.insert(Tabs.Sub, FlySpeedBtn)
 
-local SpinToggle = createToggle("SpinToggle", "TỰ QUAY QUANH: BẬT", "TỰ QUAY QUANH: TẮT", SpinEnabled, function(v)
-    SpinEnabled = v
-end)
+local SpinToggle = createToggle("SpinToggle", "TỰ QUAY QUANH: BẬT", "TỰ QUAY QUANH: TẮT", SpinEnabled, function(v) SpinEnabled = v end)
 SpinToggle.Parent = ContentContainer
 table.insert(Tabs.Sub, SpinToggle)
 
-local FOVPlus = createActionBtn("TĂNG BÁN KÍNH FOV (+10)", function()
-    FOV_RADIUS = math.clamp(FOV_RADIUS + 10, 10, 300)
-end)
+local FOVPlus = createActionBtn("TĂNG BÁN KÍNH FOV (+10)", function() FOV_RADIUS = math.clamp(FOV_RADIUS + 10, 10, 300) end)
 FOVPlus.Parent = ContentContainer
 table.insert(Tabs.Sub, FOVPlus)
 
-local FOVMinus = createActionBtn("GIẢM BÁN KÍNH FOV (-10)", function()
-    FOV_RADIUS = math.clamp(FOV_RADIUS - 10, 10, 300)
-end)
+local FOVMinus = createActionBtn("GIẢM BÁN KÍNH FOV (-10)", function() FOV_RADIUS = math.clamp(FOV_RADIUS - 10, 10, 300) end)
 FOVMinus.Parent = ContentContainer
 table.insert(Tabs.Sub, FOVMinus)
 
 local FOVColorBtn
 FOVColorBtn = createActionBtn("MÀU VÒNG TRÒN: Cyan", function()
-    currentFOVColorIndex = currentFOVColorIndex + 1
-    if currentFOVColorIndex > #ColorPresets then currentFOVColorIndex = 1 end
+    currentFOVColorIndex = (currentFOVColorIndex % #ColorPresets) + 1
     FOVColor = ColorPresets[currentFOVColorIndex].Color
     FOVColorBtn.Text = "MÀU VÒNG TRÒN: " .. ColorPresets[currentFOVColorIndex].Name
 end)
@@ -782,12 +682,9 @@ table.insert(Tabs.Sub, FOVColorBtn)
 
 local ESPColorBtn
 ESPColorBtn = createActionBtn("MÀU ESP KHỐI: Cyan", function()
-    currentESPColorIndex = currentESPColorIndex + 1
-    if currentESPColorIndex > #ColorPresets then currentESPColorIndex = 1 end
+    currentESPColorIndex = (currentESPColorIndex % #ColorPresets) + 1
     ESPColor = ColorPresets[currentESPColorIndex].Color
-    if ESPEnabled then
-        for _, p in ipairs(Players:GetPlayers()) do applyESP(p) end
-    end
+    if ESPEnabled then updateAllESP() end
     ESPColorBtn.Text = "MÀU ESP KHỐI: " .. ColorPresets[currentESPColorIndex].Name
 end)
 ESPColorBtn.Parent = ContentContainer
@@ -802,7 +699,6 @@ table.insert(Tabs.Sub, BackgroundToggle)
 
 MainTabBtn.MouseButton1Click:Connect(function() displayTab("Main") end)
 SubTabBtn.MouseButton1Click:Connect(function() displayTab("Sub") end)
-
 displayTab("Main")
 
 MenuButton.MouseButton1Click:Connect(function()
@@ -811,44 +707,37 @@ MenuButton.MouseButton1Click:Connect(function()
     MenuButton.Text = MenuVisible and "ẨN" or "HIỆN"
 end)
 
--- XỬ LÝ DI CHUYỂN ĐỒNG BỘ (DRAGGABLE) GIỮA MENU VÀ NÚT BẤM
-local dragging = false
-local dragInput, dragStart, startPos, startBtnPos
+-- XỬ LÝ KÉO THẢ MENU (DRAG)
+local draggingDashboard, dragInputDashboard, dragStartDashboard, startPosDashboard, startBtnPosDashboard
 
 local function updateMenuPos(input)
-    local delta = input.Position - dragStart
-    MainMenu.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    MenuButton.Position = UDim2.new(startBtnPos.X.Scale, startBtnPos.X.Offset + delta.X, startBtnPos.Y.Scale, startBtnPos.Y.Offset + delta.Y)
+    local delta = input.Position - dragStartDashboard
+    MainMenu.Position = UDim2.new(startPosDashboard.X.Scale, startPosDashboard.X.Offset + delta.X, startPosDashboard.Y.Scale, startPosDashboard.Y.Offset + delta.Y)
+    MenuButton.Position = UDim2.new(startBtnPosDashboard.X.Scale, startBtnPosDashboard.X.Offset + delta.X, startBtnPosDashboard.Y.Scale, startBtnPosDashboard.Y.Offset + delta.Y)
 end
 
-local function handleDrag(guiObject)
+local function handleDragDashboard(guiObject)
     guiObject.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            dragStart = input.Position
-            startPos = MainMenu.Position
-            startBtnPos = MenuButton.Position
-            
+            draggingDashboard = true
+            dragStartDashboard = input.Position
+            startPosDashboard = MainMenu.Position
+            startBtnPosDashboard = MenuButton.Position
             input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then 
-                    dragging = false 
-                end
+                if input.UserInputState == Enum.UserInputState.End then draggingDashboard = false end
             end)
         end
     end)
-
     guiObject.InputChanged:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
-            dragInput = input
+            dragInputDashboard = input
         end
     end)
 end
 
-handleDrag(MainMenu)
-handleDrag(MenuButton)
+handleDragDashboard(MainMenu)
+handleDragDashboard(MenuButton)
 
 UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        updateMenuPos(input)
-    end
+    if input == dragInputDashboard and draggingDashboard then updateMenuPos(input) end
 end)
