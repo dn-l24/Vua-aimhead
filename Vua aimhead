@@ -1,4 +1,4 @@
--- Đợi game tải xong hoàn toàn dữ liệu người chơi
+-- Đợi toàn bộ dữ liệu người chơi tải xong trước khi thực thi script
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 local Players = game:GetService("Players")
@@ -24,6 +24,7 @@ local WalkSpeedEnabled = false
 local CustomWalkSpeed = 100
 local InfiniteJumpEnabled = false
 local KillAuraEnabled = false
+local ShowStatsPanel = false -- Bảng FPS/Ping mặc định ẩn
 
 local OriginalToolData = {} 
 local KillAuraConnection = nil
@@ -36,6 +37,7 @@ local TARGET_PART = "Head"
 -- CẤU HÌNH MÀU SẮC
 local FOVColor = Color3.fromRGB(173, 216, 230) 
 local ESPColor = Color3.fromRGB(0, 162, 255)  
+local TracerColor = Color3.fromRGB(255, 255, 0) -- Màu đường kẻ mặc định
 local DefaultMenuColor = Color3.fromRGB(30, 30, 35)
 local BlueMenuColor = Color3.fromRGB(10, 40, 75)
 
@@ -49,6 +51,7 @@ local ColorPresets = {
 }
 local currentFOVColorIndex = 1
 local currentESPColorIndex = 1
+local currentTracerColorIndex = 4 -- Bắt đầu với màu Yellow (index 4)
 
 -- KHỞI TẠO DRAWING API
 local FOVCircle = Drawing.new("Circle")
@@ -62,13 +65,20 @@ local TracerLines = {}
 for i = 1, 3 do
     local line = Drawing.new("Line")
     line.Thickness = 1.5
-    line.Color = Color3.fromRGB(255, 255, 0)
+    line.Color = TracerColor -- Áp dụng màu hiện tại
     line.Transparency = 1
     line.Visible = false
     table.insert(TracerLines, line)
 end
 
--- TỐI ƯU HÓA: Tái sử dụng RaycastParams để tránh tạo mới 60 lần/giây
+-- Cập nhật màu tất cả đường kẻ
+local function updateAllTracerColors()
+    for _, line in ipairs(TracerLines) do
+        line.Color = TracerColor
+    end
+end
+
+-- TỐI ƯU HÓA: Tái sử dụng RaycastParams để tránh tạo mới mỗi khung hình
 local RaycastCache = RaycastParams.new()
 RaycastCache.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -80,7 +90,7 @@ local function isVisible(targetCharacter, targetPart)
     return workspace:Raycast(origin, direction, RaycastCache) == nil
 end
 
--- TỐI ƯU HÓA ESP: Chuyển ra khỏi RenderStepped
+-- TỐI ƯU HÓA ESP: Áp dụng/kích hoạt cho người chơi
 local function applyESP(player)
     if player == LocalPlayer or not player.Character then return end
     local highlight = player.Character:FindFirstChild("ESPHighlight")
@@ -110,7 +120,7 @@ local function updateAllESP()
     end
 end
 
--- TỐI ƯU HÓA FPS BOOSTER
+-- TỐI ƯU HÓA FPS BOOSTER (dọn dẹp map nhẹ)
 local HiddenPlayers = {}
 local function IsImportant(instance)
     local name = string.lower(instance.Name)
@@ -326,7 +336,7 @@ RunService.RenderStepped:Connect(function()
     local shortestDistance = math.huge
     local tracerCandidates = {}
 
-    -- Chỉ dùng duy nhất 1 vòng lặp cho cả Aimbot và Tracers
+    -- Duyệt người chơi cho cả Aimbot và Tracers
     if AimbotEnabled or ESPEnabled then
         for _, player in ipairs(Players:GetPlayers()) do
             if player == LocalPlayer or not player.Character then continue end
@@ -337,7 +347,7 @@ RunService.RenderStepped:Connect(function()
             local hum = char:FindFirstChildOfClass("Humanoid")
 
             if hum and hum.Health > 0 and targetPart and root and char.Parent == Workspace then
-                -- Check Aimbot
+                -- Kiểm tra Aimbot
                 if AimbotEnabled then
                     local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
                     if onScreen then
@@ -349,7 +359,7 @@ RunService.RenderStepped:Connect(function()
                     end
                 end
 
-                -- Collect Tracer Data
+                -- Thu thập dữ liệu Tracer
                 if ESPEnabled and localRoot then
                     local distance = (root.Position - localRoot.Position).Magnitude
                     if distance <= MAX_LINE_DISTANCE then
@@ -396,6 +406,18 @@ RunService.RenderStepped:Connect(function()
         local humanoid = localCharacter:FindFirstChildOfClass("Humanoid")
         if humanoid then humanoid.WalkSpeed = CustomWalkSpeed end
     end
+
+    -- Cập nhật FPS/Ping chỉ khi bảng đang hiển thị (tối ưu hiệu suất)
+    if ShowStatsPanel then
+        frameCount = frameCount + 1
+        local now = os.clock()
+        if now - lastUpdate >= 0.5 then
+            FpsLabel.Text = "FPS: " .. math.floor(frameCount / (now - lastUpdate))
+            PingLabel.Text = "PING: " .. math.max(0, math.floor(LocalPlayer:GetNetworkPing() * 1000)) .. " ms"
+            frameCount = 0
+            lastUpdate = now
+        end
+    end
 end)
 
 local function setupPlayerConnections(player)
@@ -422,7 +444,7 @@ ScreenGui.Parent = PlayerGui
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
--- BẢNG THÔNG TIN FPS & PING
+-- BẢNG THÔNG TIN FPS & PING (mặc định ẩn, cập nhật có điều kiện)
 local StatsFrame = Instance.new("Frame")
 StatsFrame.Name = "StatsFrame"
 StatsFrame.Parent = ScreenGui
@@ -431,6 +453,7 @@ StatsFrame.Position = UDim2.new(0, 15, 0, 15)
 StatsFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 StatsFrame.BackgroundTransparency = 0.3
 StatsFrame.BorderSizePixel = 0
+StatsFrame.Visible = ShowStatsPanel
 
 Instance.new("UICorner", StatsFrame).CornerRadius = UDim.new(0, 6)
 local StatsList = Instance.new("UIListLayout", StatsFrame)
@@ -452,17 +475,7 @@ PingLabel.Font = Enum.Font.SourceSansBold
 PingLabel.TextColor3 = Color3.fromRGB(0, 170, 255)
 PingLabel.TextSize = 14
 
-local lastUpdate, frameCount = 0, 0
-RunService.RenderStepped:Connect(function()
-    frameCount = frameCount + 1
-    local now = os.clock()
-    if now - lastUpdate >= 0.5 then
-        FpsLabel.Text = "FPS: " .. math.floor(frameCount / (now - lastUpdate))
-        PingLabel.Text = "PING: " .. math.max(0, math.floor(LocalPlayer:GetNetworkPing() * 1000)) .. " ms"
-        frameCount = 0
-        lastUpdate = now
-    end
-end)
+local lastUpdate, frameCount = 0, 0 -- Khởi tạo biến đếm FPS
 
 -- MAIN MENU
 local MainMenu = Instance.new("Frame", ScreenGui)
@@ -690,12 +703,36 @@ end)
 ESPColorBtn.Parent = ContentContainer
 table.insert(Tabs.Sub, ESPColorBtn)
 
+-- Nút đổi màu đường kẻ tracer
+local TracerColorBtn
+TracerColorBtn = createActionBtn("MÀU ĐƯỜNG KẺ: Yellow", function()
+    currentTracerColorIndex = (currentTracerColorIndex % #ColorPresets) + 1
+    TracerColor = ColorPresets[currentTracerColorIndex].Color
+    updateAllTracerColors()
+    TracerColorBtn.Text = "MÀU ĐƯỜNG KẺ: " .. ColorPresets[currentTracerColorIndex].Name
+end)
+TracerColorBtn.Parent = ContentContainer
+table.insert(Tabs.Sub, TracerColorBtn)
+
 local BackgroundToggle = createToggle("BackgroundToggle", "NỀN MENU: XANH MỜ", "NỀN MENU: MẶC ĐỊNH", BlueBackgroundEnabled, function(v)
     BlueBackgroundEnabled = v
     updateMenuBackground()
 end)
 BackgroundToggle.Parent = ContentContainer
 table.insert(Tabs.Sub, BackgroundToggle)
+
+-- Nút điều khiển hiển thị bảng FPS/Ping
+local StatsPanelToggle = createToggle("StatsPanelToggle", "BẢNG FPS/PING: BẬT", "BẢNG FPS/PING: TẮT", ShowStatsPanel, function(v)
+    ShowStatsPanel = v
+    StatsFrame.Visible = v
+    -- Đặt lại biến đếm khi bật để tránh giá trị cũ
+    if v then
+        frameCount = 0
+        lastUpdate = os.clock()
+    end
+end)
+StatsPanelToggle.Parent = ContentContainer
+table.insert(Tabs.Sub, StatsPanelToggle)
 
 MainTabBtn.MouseButton1Click:Connect(function() displayTab("Main") end)
 SubTabBtn.MouseButton1Click:Connect(function() displayTab("Sub") end)
